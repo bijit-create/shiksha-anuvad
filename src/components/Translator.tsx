@@ -33,6 +33,16 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// remark-math understands $...$ and $$...$$ natively. Our server emits
+// math wrapped in \( ... \) and \[ ... \] (preserved for copy/export),
+// so we swap the delimiters only when handing off to ReactMarkdown.
+function prepareMathForRender(text: string): string {
+  if (!text) return text;
+  return text
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_m, body) => `$$${body}$$`)
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_m, body) => `$${body}$`);
+}
+
 const GRADES: GradeLevel[] = [
   'KG', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 
   'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 
@@ -422,16 +432,25 @@ export default function Translator() {
                 <div className="space-y-1">
                   <h3 className="text-sm font-bold text-indigo-900">LaTeX Math Formatting Guide</h3>
                   <p className="text-xs text-indigo-800/80 leading-relaxed">
-                    Mathematical expressions are auto-detected and rendered as typeset math using KaTeX. Write math in your English input using plain LaTeX commands — the translator wraps them and the output panel renders them beautifully.
+                    Every math expression in the Hindi output is wrapped in{' '}
+                    <code className="px-1.5 py-0.5 bg-white border border-indigo-200 rounded text-[11px] font-mono text-indigo-700">{'\\( expression \\)'}</code>{' '}
+                    inline delimiters. The preview below renders it as typeset math, and the <strong>Copy</strong> button gives you the raw LaTeX source — safe to paste into any NCERT/Markdown/LaTeX pipeline.
                   </p>
                 </div>
               </div>
 
               <div>
-                <h4 className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider mb-2">Rendered Output Example</h4>
+                <h4 className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider mb-2">Output Source (what Copy gives you)</h4>
+                <div className="bg-white border border-indigo-200 rounded-lg p-3 font-mono text-xs text-zinc-800 break-words">
+                  {'रिक्त स्थानों की पूर्ति कीजिए: व्यंजक \\(343b^{3} - 588b^{2} + 336b - 64\\) का गुणनखंडन...'}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider mb-2">Rendered Preview</h4>
                 <div className="bg-white border border-indigo-200 rounded-lg p-3 text-sm text-zinc-800 break-words font-hindi markdown-body">
                   <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                    {'$125t^{3} + 8 + 150t^{2} + 60t$ के गुणनखंड क्या हैं?'}
+                    {prepareMathForRender('रिक्त स्थानों की पूर्ति कीजिए: व्यंजक \\(343b^{3} - 588b^{2} + 336b - 64\\) का गुणनखंडन...')}
                   </ReactMarkdown>
                 </div>
               </div>
@@ -469,7 +488,7 @@ export default function Translator() {
               <div className="flex items-start gap-2 text-[11px] text-indigo-800/80 leading-relaxed border-t border-indigo-100 pt-3">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-indigo-600" />
                 <span>
-                  Inside the rendered output, math is shown using KaTeX. If you copy the translation, math appears as <code className="px-1 py-0.5 bg-white border border-indigo-200 rounded font-mono text-indigo-700">$ ... $</code> inline delimiters which any Markdown/LaTeX pipeline can re-render.
+                  Rendered output uses KaTeX. Copy output preserves the <code className="px-1 py-0.5 bg-white border border-indigo-200 rounded font-mono text-indigo-700">{'\\( ... \\)'}</code> delimiters, so any NCERT / Markdown / LaTeX pipeline downstream re-renders the math correctly.
                 </span>
               </div>
             </div>
@@ -543,7 +562,7 @@ export default function Translator() {
             ) : output ? (
               <div className="markdown-body font-hindi text-lg">
                 <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                  {output}
+                  {prepareMathForRender(output)}
                 </ReactMarkdown>
               </div>
             ) : (

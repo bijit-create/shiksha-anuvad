@@ -20,8 +20,8 @@ const MATH_CLOSE = '[MATH_END]';
 export function rewriteMathMarkers(text: string): string {
   if (!text) return text;
   return text
-    .replace(/\[MATH_START\]\s*/g, '$')
-    .replace(/\s*\[MATH_END\]/g, '$');
+    .replace(/\[MATH_START\]\s*/g, '\\(')
+    .replace(/\s*\[MATH_END\]/g, '\\)');
 }
 
 async function callGemini(systemInstruction: string, prompt: string, retries = 4, backoff = 3000): Promise<any> {
