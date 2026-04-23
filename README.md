@@ -123,14 +123,41 @@ Streamlit is Python-only — hosting this app there would mean rewriting the who
 | POST   | `/api/translate` | `{ content, grade?, subject?, contentType?, additionalContext? }` | `{ translatedText, explanation }` |
 | POST   | `/api/analyze`   | `{ content, grade?, subject? }`                                | `ContentAnalysis`                |
 
+## Access control (lockscreen)
+
+The app supports a shared-token lock to restrict who can use the deployed site. Useful because Vercel's built-in password protection is a Pro-plan feature — this achieves the same effect on the free Hobby plan.
+
+Set an `APP_ACCESS_TOKEN` env var on the server. When set:
+- Every `/api/translate` and `/api/analyze` call requires an `x-access-token` header matching that value.
+- The frontend shows a lockscreen on first visit, validates the token via `/api/health`, and stores it in `localStorage` for subsequent visits.
+- `/api/health` stays open (no auth) so uptime probes keep working.
+
+When `APP_ACCESS_TOKEN` is **unset** or empty, the lock is disabled and everything is public. Handy for local dev.
+
+Generate a strong token:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
+```
+
+Then set it on Vercel (Dashboard → Project → Settings → Environment Variables → `APP_ACCESS_TOKEN`), or via CLI:
+
+```bash
+vercel env add APP_ACCESS_TOKEN   # paste; apply to production + preview
+vercel --prod                      # redeploy
+```
+
+Share the token with people who should have access. If it leaks, rotate by updating the env var and redeploying — localStorage tokens will start failing and users will see the lockscreen again.
+
 ## Environment variables
 
-| Variable          | Required | Default                   | Notes                                               |
-|-------------------|----------|---------------------------|-----------------------------------------------------|
-| `GEMINI_API_KEY`  | yes      | —                         | Server-side only. Set as a Vercel env var.          |
-| `GEMINI_MODEL`    | no       | `gemini-3.1-pro-preview`  | Override to any available Gemini model.             |
-| `PORT`            | no       | `8080`                    | Express HTTP port (ignored on Vercel).              |
-| `BACKEND_URL`     | no (dev) | `http://localhost:8080`   | Vite dev-server proxy target.                       |
+| Variable            | Required | Default                   | Notes                                                           |
+|---------------------|----------|---------------------------|-----------------------------------------------------------------|
+| `GEMINI_API_KEY`    | yes      | —                         | Server-side only. Set as a Vercel env var.                      |
+| `APP_ACCESS_TOKEN`  | no       | — (lock disabled)         | Shared token gating `/api/translate` and `/api/analyze`.        |
+| `GEMINI_MODEL`      | no       | `gemini-3.1-pro-preview`  | Override to any available Gemini model.                         |
+| `PORT`              | no       | `8080`                    | Express HTTP port (ignored on Vercel).                          |
+| `BACKEND_URL`       | no (dev) | `http://localhost:8080`   | Vite dev-server proxy target.                                   |
 
 ## Project layout
 

@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { translate, analyze, getModel } from './lib/gemini.js';
+import { checkAccess, getExpectedToken, ACCESS_TOKEN_HEADER } from './lib/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,11 +22,16 @@ if (!process.env.GEMINI_API_KEY) {
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 
-app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({ ok: true, model: getModel() });
+app.get('/api/health', (req: Request, res: Response) => {
+  const expected = getExpectedToken();
+  const authRequired = expected !== null;
+  const provided = (req.headers[ACCESS_TOKEN_HEADER] || '').toString().trim();
+  const authenticated = !authRequired || provided === expected;
+  res.json({ ok: true, model: getModel(), authRequired, authenticated });
 });
 
 app.post('/api/translate', async (req: Request, res: Response) => {
+  if (!checkAccess(req, res)) return;
   try {
     const { content } = req.body || {};
     if (!content || typeof content !== 'string' || !content.trim()) {
@@ -40,6 +46,7 @@ app.post('/api/translate', async (req: Request, res: Response) => {
 });
 
 app.post('/api/analyze', async (req: Request, res: Response) => {
+  if (!checkAccess(req, res)) return;
   try {
     const { content } = req.body || {};
     if (!content || typeof content !== 'string' || !content.trim()) {
