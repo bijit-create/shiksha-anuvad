@@ -19,7 +19,8 @@ import {
   Sigma,
   ChevronDown,
   Info,
-  Globe
+  Globe,
+  Layers
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -125,6 +126,8 @@ export default function Translator() {
   const [mode, setMode] = useState<'text' | 'excel'>('text');
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [excelFileBuffer, setExcelFileBuffer] = useState<ArrayBuffer | null>(null);
+  const [availableSheets, setAvailableSheets] = useState<string[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<string>('');
   const [headerRowIndex, setHeaderRowIndex] = useState<number>(1);
   const [startRowIndex, setStartRowIndex] = useState<number>(2);
   const [endRowIndex, setEndRowIndex] = useState<number>(2);
@@ -197,18 +200,28 @@ export default function Translator() {
     setError(null);
   };
 
-  const parseExcel = (buffer: ArrayBuffer, headerRow: number) => {
+  const parseExcel = (buffer: ArrayBuffer, headerRow: number, sheetName?: string) => {
     try {
       const data = new Uint8Array(buffer);
       const wb = XLSX.read(data, { type: 'array' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      
+
+      // Always refresh the sheet list (idempotent — safe across re-parses).
+      setAvailableSheets(wb.SheetNames);
+
+      // Resolve which sheet to read: caller's choice (if valid), else first sheet.
+      const resolvedSheet = sheetName && wb.SheetNames.includes(sheetName)
+        ? sheetName
+        : wb.SheetNames[0];
+      // Only push selectedSheet from inside parseExcel on the *initial* read (when caller
+      // didn't pass one) — otherwise we'd fight the user's explicit pick.
+      if (!sheetName) setSelectedSheet(resolvedSheet);
+
+      const ws = wb.Sheets[resolvedSheet];
       const aoa = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: "" });
-      
+
       const headers = (aoa[headerRow - 1] || []).map(String).filter(Boolean);
       setExcelColumns(headers);
-      
+
       const dataRows = aoa.slice(headerRow).filter(row => row.length > 0);
       setDataRowCount(dataRows.length);
       setStartRowIndex(headerRow + 1);
@@ -225,7 +238,9 @@ export default function Translator() {
     if (!file) return;
     setExcelFile(file);
     setHeaderRowIndex(1);
-    
+    setSelectedSheet('');
+    setAvailableSheets([]);
+
     const reader = new FileReader();
     reader.onload = (evt) => {
       const buffer = evt.target?.result as ArrayBuffer;
@@ -235,12 +250,21 @@ export default function Translator() {
     reader.readAsArrayBuffer(file);
   };
 
+  const handleSheetChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newSheet = e.target.value;
+    setSelectedSheet(newSheet);
+    setHeaderRowIndex(1);
+    if (excelFileBuffer) {
+      parseExcel(excelFileBuffer, 1, newSheet);
+    }
+  };
+
   const handleHeaderRowChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseInt(e.target.value, 10);
     if (isNaN(val) || val < 1) return;
     setHeaderRowIndex(val);
     if (excelFileBuffer) {
-      parseExcel(excelFileBuffer, val);
+      parseExcel(excelFileBuffer, val, selectedSheet);
     }
   };
 
@@ -259,7 +283,9 @@ export default function Translator() {
     try {
       const data = new Uint8Array(excelFileBuffer);
       const wb = XLSX.read(data, { type: 'array' });
-      const wsname = wb.SheetNames[0];
+      const wsname = (selectedSheet && wb.SheetNames.includes(selectedSheet))
+        ? selectedSheet
+        : wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
 
       const aoa = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: "" });
@@ -369,11 +395,10 @@ export default function Translator() {
         },
       );
 
-      // -------- PHASE 4: Build workbook and download --------
+      // -------- PHASE 4: Replace the translated sheet in-place, preserve all others --------
       const newWs = XLSX.utils.aoa_to_sheet(aoa);
-      const newWb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(newWb, newWs, "Translated");
-      XLSX.writeFile(newWb, `Translated_${targetLanguage}_${excelFile?.name || 'document.xlsx'}`);
+      wb.Sheets[wsname] = newWs;
+      XLSX.writeFile(wb, `Translated_${targetLanguage}_${excelFile?.name || 'document.xlsx'}`);
 
     } catch (err: any) {
       setError(err.message || 'An unexpected error occurred during Excel translation');
@@ -711,10 +736,12 @@ export default function Translator() {
                     <p className="text-xs font-medium text-zinc-500 mt-0.5">{dataRowCount} rows detected</p>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={() => {
                     setExcelFile(null);
                     setExcelFileBuffer(null);
+                    setAvailableSheets([]);
+                    setSelectedSheet('');
                     setHeaderRowIndex(1);
                     setDataRowCount(0);
                     setExcelColumns([]);
@@ -727,6 +754,38 @@ export default function Translator() {
                   Remove
                 </button>
               </div>
+
+              {availableSheets.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-bold text-zinc-700 uppercase tracking-wide flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-indigo-600" />
+                    Sheet
+                    {availableSheets.length > 1 && (
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                        {availableSheets.length} sheets detected
+                      </span>
+                    )}
+                  </h3>
+                  <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-200 space-y-2">
+                    <label className="text-xs font-medium text-zinc-700">Pick the sheet to translate</label>
+                    <select
+                      value={selectedSheet}
+                      onChange={handleSheetChange}
+                      disabled={availableSheets.length === 1}
+                      className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-70 disabled:cursor-not-allowed"
+                    >
+                      {availableSheets.map(name => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                    {availableSheets.length > 1 && (
+                      <p className="text-[11px] text-zinc-500 leading-relaxed">
+                        Only the selected sheet is translated. Untranslated sheets are preserved as-is in the downloaded file.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-3">
                 <h3 className="text-sm font-bold text-zinc-700 uppercase tracking-wide">Row Configuration</h3>
