@@ -18,7 +18,8 @@ import {
   Upload,
   Sigma,
   ChevronDown,
-  Info
+  Info,
+  Globe
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -26,7 +27,7 @@ import rehypeKatex from 'rehype-katex';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import * as XLSX from 'xlsx';
-import { GradeLevel, Subject, TranslationRequest, ContentAnalysis } from '../types';
+import { GradeLevel, Subject, Language, ContentAnalysis } from '../types';
 import { translateContent, analyzeContent } from '../services/geminiService';
 
 function cn(...inputs: ClassValue[]) {
@@ -50,9 +51,28 @@ const GRADES: GradeLevel[] = [
 ];
 
 const SUBJECTS: Subject[] = [
-  'Mathematics', 'Science', 'Social Science', 'English', 
-  'Environmental Studies', 'Physics', 'Chemistry', 'Biology', 
+  'Mathematics', 'Science', 'Social Science', 'English',
+  'Environmental Studies', 'Physics', 'Chemistry', 'Biology',
   'History', 'Geography', 'Economics', 'Political Science'
+];
+
+// Indian languages only — NCERT-aligned curriculum focus.
+// Native-script labels are shown alongside English names so users can
+// quickly recognise their target language.
+const LANGUAGES: { code: Language; label: string; native: string }[] = [
+  { code: 'Hindi',     label: 'Hindi',     native: 'हिन्दी' },
+  { code: 'Marathi',   label: 'Marathi',   native: 'मराठी' },
+  { code: 'Gujarati',  label: 'Gujarati',  native: 'ગુજરાતી' },
+  { code: 'Odia',      label: 'Odia',      native: 'ଓଡ଼ିଆ' },
+  { code: 'Telugu',    label: 'Telugu',    native: 'తెలుగు' },
+  { code: 'Bengali',   label: 'Bengali',   native: 'বাংলা' },
+  { code: 'Tamil',     label: 'Tamil',     native: 'தமிழ்' },
+  { code: 'Kannada',   label: 'Kannada',   native: 'ಕನ್ನಡ' },
+  { code: 'Malayalam', label: 'Malayalam', native: 'മലയാളം' },
+  { code: 'Punjabi',   label: 'Punjabi',   native: 'ਪੰਜਾਬੀ' },
+  { code: 'Urdu',      label: 'Urdu',      native: 'اُردُو' },
+  { code: 'Assamese',  label: 'Assamese',  native: 'অসমীয়া' },
+  { code: 'Sanskrit',  label: 'Sanskrit',  native: 'संस्कृतम्' },
 ];
 
 const CONTENT_TYPES = ['Question', 'Paragraph', 'MCQ', 'Statement'] as const;
@@ -62,6 +82,9 @@ export default function Translator() {
   const [grade, setGrade] = useState<GradeLevel>('Grade 6');
   const [subject, setSubject] = useState<Subject>('Science');
   const [contentType, setContentType] = useState<typeof CONTENT_TYPES[number]>('Paragraph');
+  const [targetLanguage, setTargetLanguage] = useState<Language>('Hindi');
+
+  const targetLangNative = LANGUAGES.find(l => l.code === targetLanguage)?.native || targetLanguage;
   
   const [output, setOutput] = useState('');
   const [explanation, setExplanation] = useState('');
@@ -97,7 +120,8 @@ export default function Translator() {
         content: input,
         grade,
         subject,
-        contentType
+        contentType,
+        targetLanguage,
       });
       setOutput(result.translatedText);
       setExplanation(result.explanation || '');
@@ -121,7 +145,8 @@ export default function Translator() {
         content: input,
         grade,
         subject,
-        contentType
+        contentType,
+        targetLanguage,
       });
       setAnalysis(result);
     } catch (err) {
@@ -231,7 +256,7 @@ export default function Translator() {
           // Header row
           for (let i = translateIndices.length - 1; i >= 0; i--) {
             const origIdx = translateIndices[i];
-            aoa[r].splice(origIdx + 1, 0, `${originalHeaders[origIdx]} (Hindi)`);
+            aoa[r].splice(origIdx + 1, 0, `${originalHeaders[origIdx]} (${targetLanguage})`);
           }
           continue;
         }
@@ -271,7 +296,8 @@ export default function Translator() {
                   grade,
                   subject,
                   contentType: columnName,
-                  additionalContext: rowContextStr
+                  additionalContext: rowContextStr,
+                  targetLanguage,
                 });
                 row[targetIdx] = result.translatedText;
                 // Add a small delay between requests to help avoid rate limits
@@ -318,7 +344,9 @@ export default function Translator() {
             <Languages className="w-8 h-8 text-indigo-600" />
             Shiksha Anuvad
           </h1>
-          <p className="text-zinc-500 mt-1">Contextual NCERT-aligned English to Hindi Translator</p>
+          <p className="text-zinc-500 mt-1">
+            Contextual NCERT-aligned English → <span className="font-semibold text-zinc-700">{targetLanguage}</span> <span className="text-zinc-400">({targetLangNative})</span> Translator
+          </p>
         </div>
         <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-zinc-400">
           <span className="px-2 py-1 bg-zinc-100 rounded">v1.0</span>
@@ -327,7 +355,22 @@ export default function Translator() {
       </header>
 
       {/* Controls */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-2xl shadow-sm border border-zinc-100">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 bg-white p-4 rounded-2xl shadow-sm border border-zinc-100">
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-zinc-500 flex items-center gap-2">
+            <Globe className="w-3.5 h-3.5" /> TARGET LANGUAGE
+          </label>
+          <select
+            value={targetLanguage}
+            onChange={(e) => setTargetLanguage(e.target.value as Language)}
+            className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+          >
+            {LANGUAGES.map(({ code, label, native }) => (
+              <option key={code} value={code}>{label} — {native}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="space-y-1.5">
           <label className="text-xs font-semibold text-zinc-500 flex items-center gap-2">
             <GraduationCap className="w-3.5 h-3.5" /> GRADE LEVEL
@@ -527,7 +570,9 @@ export default function Translator() {
         {/* Output */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-zinc-700 uppercase tracking-wide">Hindi Translation</h2>
+            <h2 className="text-sm font-bold text-zinc-700 uppercase tracking-wide">
+              {targetLanguage} Translation <span className="text-zinc-400 font-normal normal-case">— {targetLangNative}</span>
+            </h2>
             {output && (
               <button 
                 onClick={copyToClipboard}
@@ -546,7 +591,7 @@ export default function Translator() {
             {isLoading ? (
               <div className="flex flex-col items-center justify-center h-full space-y-4 text-zinc-400">
                 <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
-                <p className="text-sm font-medium animate-pulse">Crafting contextual translation...</p>
+                <p className="text-sm font-medium animate-pulse">Looking up NCERT terms in {targetLanguage}, then translating…</p>
               </div>
             ) : error ? (
               <div className="flex flex-col items-center justify-center h-full space-y-3 text-red-500 text-center p-4">

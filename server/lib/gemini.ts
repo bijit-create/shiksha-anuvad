@@ -56,6 +56,7 @@ export interface TranslateInput {
   subject?: string;
   contentType?: string;
   additionalContext?: string;
+  targetLanguage?: string;
 }
 
 export interface TranslateOutput {
@@ -67,6 +68,7 @@ export interface AnalyzeInput {
   content: string;
   grade?: string;
   subject?: string;
+  targetLanguage?: string;
 }
 
 export interface AnalyzeOutput {
@@ -77,39 +79,46 @@ export interface AnalyzeOutput {
 }
 
 export async function translate(input: TranslateInput): Promise<TranslateOutput> {
-  const { content, grade, subject, contentType, additionalContext } = input;
+  const { content, grade, subject, contentType, additionalContext, targetLanguage } = input;
+  const target = (targetLanguage || 'Hindi').trim();
 
   const systemInstruction = `You are an expert educational content developer and translator specializing in the Indian NCERT curriculum.
-Your task is to translate educational content from English to Hindi.
+Your task is to translate educational content from English into ${target}.
 
 CRITICAL GUIDELINES:
-1. CONTEXTUAL TRANSLATION: Do not perform word-to-word translation. Focus on conveying the exact pedagogical intent and concept in natural, academic Hindi.
-2. GRADE APPROPRIATENESS: Use vocabulary and sentence structures suitable for the target grade. If the grade is provided in the context, adapt to it intelligently.
-   - For lower grades (KG-5), use simpler, more descriptive Hindi.
-   - For middle grades (6-8), introduce standard academic terminology used in NCERT textbooks.
-   - For secondary grades (9-12), use precise technical and formal Hindi as per official curriculum standards.
-3. SUBJECT SPECIFICITY: Use correct terminology for the target subject. For example, in Maths, use 'गुणनफल' for product, 'त्रिभुज' for triangle, etc.
-4. CONTENT TYPE: Adapt the translation based on the content type (e.g., Question, Explanation, Option).
-   - If it's a 'Question', ensure the interrogative tone is maintained.
-   - If it's an 'MCQ' or 'Option', translate clearly and concisely.
-   - If it's a 'Paragraph' or 'Explanation', maintain the flow of information.
-5. NCERT ALIGNMENT: Follow the linguistic style and terminology defined in NCERT Hindi medium textbooks for the respective grade and subject.
-6. FORMATTING: Return the translation in Markdown format.
-7. MATHEMATICAL EXPRESSIONS (CRITICAL):
+1. SEARCH-FIRST APPROACH (do this BEFORE you write the translation):
+   - Identify every key technical / subject-specific term, named entity, and idiomatic phrase in the source text.
+   - For each, recall the canonical NCERT-equivalent term used in ${target}-medium textbooks of the target grade and subject. Prefer the established academic term over a literal transliteration.
+   - If multiple variants exist (regional, classical, colloquial), pick the one used in ${target} NCERT/SCERT textbooks at the target grade.
+   - Only after this internal terminology lookup, produce the translation.
+2. CONTEXTUAL TRANSLATION: Do not perform word-to-word translation. Convey the pedagogical intent in natural, academic ${target}.
+3. GRADE APPROPRIATENESS:
+   - Lower grades (KG-5): simpler, more descriptive ${target}.
+   - Middle grades (6-8): standard academic terminology used in NCERT textbooks for ${target}.
+   - Secondary grades (9-12): precise technical and formal ${target} per official curriculum standards.
+4. SUBJECT SPECIFICITY: Use the correct subject-specific terminology in ${target} (Mathematics, Science, History, etc.). Do not invent words; use the established term used in the ${target}-medium NCERT textbook for the subject.
+5. CONTENT TYPE: Adapt to the content type:
+   - 'Question': preserve the interrogative tone.
+   - 'MCQ' / 'Option': translate clearly and concisely.
+   - 'Paragraph' / 'Explanation': maintain flow of information.
+6. NCERT ALIGNMENT: Mirror the linguistic style of NCERT ${target}-medium textbooks for the specified grade and subject.
+7. SCRIPT: Write the translation in the native script of ${target} (e.g., Hindi/Marathi/Sanskrit → Devanagari, Bengali/Assamese → Bangla script, Tamil → Tamil script, Urdu → Perso-Arabic, etc.). Do not transliterate into Latin unless the target language itself is Latin-script.
+8. FORMATTING: Return the translation in Markdown format.
+9. MATHEMATICAL EXPRESSIONS (CRITICAL — language-independent):
    - Wrap EVERY mathematical expression, equation, variable, number-with-unit, or symbolic term in the exact tags ${MATH_OPEN} and ${MATH_CLOSE}.
    - Example: ${MATH_OPEN}125{t^3} + 8 + 150{t^2} + 60t${MATH_CLOSE}
-   - These tags will be automatically converted to proper LaTeX delimiters and rendered as typeset math.
-   - Do NOT use backslash-parenthesis (\\( \\)) or dollar signs ($ $$) directly — only the tags above.
+   - These tags are automatically rewritten to LaTeX \\( ... \\) delimiters and rendered as typeset math by the client.
+   - Do NOT emit backslash-parenthesis (\\( \\)) or dollar signs ($ $$) directly — only the tags above.
    - Use standard LaTeX commands inside the tags: \\frac{a}{b}, \\sqrt{x}, x^{n}, x_{i}, \\times, \\div, \\pi, \\theta, \\sum, \\int, \\leq, \\geq, \\neq, \\approx, \\infty, \\text{...}.
-   - Do NOT translate variable names, LaTeX commands, or mathematical symbols into Hindi — only the surrounding narrative prose should be in Hindi.
+   - Do NOT translate variable names, LaTeX commands, or mathematical symbols into ${target}. Only the surrounding narrative prose should be in ${target}.
 
 Provide the response in the following JSON format:
 {
-  "translatedText": "The translated content in Hindi, with every math expression wrapped in ${MATH_OPEN} and ${MATH_CLOSE}",
-  "explanation": "Briefly explain any specific terminology choices made to align with the grade level (optional)"
+  "translatedText": "The translated content in ${target}, with every math expression wrapped in ${MATH_OPEN} and ${MATH_CLOSE}",
+  "explanation": "Briefly note any non-obvious terminology choices you made (canonical NCERT term, regional variant picked, etc.) — optional"
 }`;
 
-  let prompt = `Translate the following content.`;
+  let prompt = `Translate the following content into ${target}.`;
   if (grade) prompt += `\nTarget Grade: ${grade}`;
   if (subject) prompt += `\nTarget Subject: ${subject}`;
   if (contentType) prompt += `\nContent Type / Column Name: ${contentType}`;
@@ -126,14 +135,15 @@ Provide the response in the following JSON format:
 }
 
 export async function analyze(input: AnalyzeInput): Promise<AnalyzeOutput> {
-  const { content, grade, subject } = input;
+  const { content, grade, subject, targetLanguage } = input;
+  const target = (targetLanguage || 'Hindi').trim();
 
   const systemInstruction = `You are an educational consultant specializing in the NCERT curriculum.
 Analyze the provided educational content for ${grade || 'the given grade'} ${subject || ''}.
 
 Provide:
-1. Key Concepts: 3-5 core concepts covered (short plain-text phrases).
-2. Vocabulary: 3-5 important terms with their English word, Hindi translation, and a simple definition.
+1. Key Concepts: 3-5 core concepts covered (short plain-text phrases, in English).
+2. Vocabulary: 3-5 important terms. For each, give the English word, the canonical NCERT-equivalent term in ${target} (in the native script of ${target}), and a one-line definition in English. Look up the established term used in ${target}-medium NCERT textbooks rather than transliterating.
 3. NCERT Alignment: A brief note on how this aligns with NCERT standards for this grade.
 4. Suggested Activities: 1-2 classroom activities related to this content.
 
@@ -142,10 +152,11 @@ Keep these analysis fields as plain text (no LaTeX markers, no markdown). Return
 Return the response in JSON format:
 {
   "keyConcepts": ["concept1", "concept2"],
-  "vocabulary": [{"english": "word", "hindi": "शब्द", "definition": "meaning"}],
+  "vocabulary": [{"english": "word", "hindi": "term in ${target} script", "definition": "meaning"}],
   "ncertAlignment": "alignment note",
   "suggestedActivities": ["activity1"]
-}`;
+}
+Note: the JSON key "hindi" is kept as-is for compatibility, but the value should be the term in ${target}.`;
 
   return callGemini(systemInstruction, content);
 }

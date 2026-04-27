@@ -4,7 +4,9 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  --font-hindi: "Noto Sans Devanagari", sans-serif;
+  /* Per-character font fallback: the browser picks the matching script font.
+     Order doesn't matter for correctness — only for which loads first if cached. */
+  --font-hindi: "Noto Sans Devanagari", "Noto Sans Bengali", "Noto Sans Tamil", "Noto Sans Telugu", "Noto Sans Gujarati", "Noto Sans Kannada", "Noto Sans Malayalam", "Noto Sans Gurmukhi", "Noto Sans Oriya", "Noto Naskh Arabic", "Inter", sans-serif;
 }
 
 @layer base {
