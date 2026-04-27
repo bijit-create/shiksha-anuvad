@@ -44,6 +44,33 @@ function prepareMathForRender(text: string): string {
     .replace(/\\\(([\s\S]+?)\\\)/g, (_m, body) => `$${body}$`);
 }
 
+// Run async jobs with a concurrency cap. Workers pull from a shared cursor
+// so faster jobs don't wait for slower batchmates. onSettled fires once per
+// job (in completion order, not input order) — caller uses it for progress.
+async function runWithConcurrency<T>(
+  count: number,
+  concurrency: number,
+  worker: (index: number) => Promise<T>,
+  onSettled?: (index: number, result: T | Error) => void,
+): Promise<void> {
+  let cursor = 0;
+  const lanes = Array.from({ length: Math.min(concurrency, count) }, async () => {
+    while (true) {
+      const i = cursor++;
+      if (i >= count) return;
+      try {
+        const result = await worker(i);
+        onSettled?.(i, result);
+      } catch (err) {
+        onSettled?.(i, err as Error);
+      }
+    }
+  });
+  await Promise.all(lanes);
+}
+
+const EXCEL_CONCURRENCY = 4;
+
 const GRADES: GradeLevel[] = [
   'KG', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 
   'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 
@@ -225,108 +252,129 @@ export default function Translator() {
 
   const handleExcelTranslate = async () => {
     if (!excelFileBuffer || selectedColumns.length === 0) return;
-    
+
     setIsExcelTranslating(true);
     setError(null);
-    
+
     try {
       const data = new Uint8Array(excelFileBuffer);
       const wb = XLSX.read(data, { type: 'array' });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
-      
+
       const aoa = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: "" });
       const headerRowIdx = headerRowIndex - 1;
       const originalHeaders = [...(aoa[headerRowIdx] || [])];
-      
+
       const translateIndices = selectedColumns
         .map(col => originalHeaders.indexOf(col))
         .filter(idx => idx !== -1)
         .sort((a, b) => a - b);
-        
+
       const startIdx = Math.max(headerRowIdx + 1, startRowIndex - 1);
       const endIdx = Math.min(endRowIndex, aoa.length);
-      const rowsToTranslate = endIdx - startIdx;
-      setExcelProgress({ current: 0, total: rowsToTranslate });
-      
-      let currentProgress = 0;
-      
-      for (let r = 0; r < aoa.length; r++) {
-        if (r === headerRowIdx) {
-          // Header row
-          for (let i = translateIndices.length - 1; i >= 0; i--) {
-            const origIdx = translateIndices[i];
-            aoa[r].splice(origIdx + 1, 0, `${originalHeaders[origIdx]} (${targetLanguage})`);
-          }
-          continue;
-        }
-        
-        const row = aoa[r] || [];
-        
-        // If this is a row we need to translate
-        if (r >= startIdx && r < endIdx) {
-          // Build row context object from original row BEFORE splicing
-          const rowContextObj: Record<string, any> = {};
-          for (let c = 0; c < originalHeaders.length; c++) {
-            if (row[c] !== undefined && row[c] !== "") {
-              rowContextObj[originalHeaders[c]] = row[c];
-            }
-          }
-          const rowContextStr = JSON.stringify(rowContextObj);
-          
-          // Splice empty cells for new columns
-          for (let i = translateIndices.length - 1; i >= 0; i--) {
-            const origIdx = translateIndices[i];
-            row.splice(origIdx + 1, 0, ""); 
-          }
-          
-          // Translate
-          for (let i = 0; i < translateIndices.length; i++) {
-            const origIdx = translateIndices[i];
-            const currentOrigIdx = origIdx + i;
-            const targetIdx = currentOrigIdx + 1;
-            
-            const content = row[currentOrigIdx];
-            const columnName = originalHeaders[origIdx];
 
-            if (content && typeof content === 'string' && content.trim()) {
-              try {
-                const result = await translateContent({
-                  content,
-                  grade,
-                  subject,
-                  contentType: columnName,
-                  additionalContext: rowContextStr,
-                  targetLanguage,
-                });
-                row[targetIdx] = result.translatedText;
-                // Add a small delay between requests to help avoid rate limits
-                await new Promise(resolve => setTimeout(resolve, 1500));
-              } catch (err) {
-                console.error(`Error translating row ${r}, col ${currentOrigIdx}:`, err);
-                row[targetIdx] = "Translation Error";
-              }
-            }
-          }
-          
-          currentProgress++;
-          setExcelProgress({ current: currentProgress, total: rowsToTranslate });
-        } else {
-          // Not translating this row, just splice empty cells to maintain alignment
+      // -------- PHASE 1: Splice "(Lang)" header + empty cells everywhere --------
+      // Done synchronously so column geometry is stable before parallel writes.
+      for (let r = 0; r < aoa.length; r++) {
+        const row = aoa[r] || [];
+        if (r === headerRowIdx) {
           for (let i = translateIndices.length - 1; i >= 0; i--) {
             const origIdx = translateIndices[i];
-            row.splice(origIdx + 1, 0, ""); 
+            row.splice(origIdx + 1, 0, `${originalHeaders[origIdx]} (${targetLanguage})`);
+          }
+        } else {
+          for (let i = translateIndices.length - 1; i >= 0; i--) {
+            const origIdx = translateIndices[i];
+            row.splice(origIdx + 1, 0, "");
           }
         }
-        
         aoa[r] = row;
       }
-      
+
+      // -------- PHASE 2: Build a flat job list (row × column) --------
+      type Job = {
+        rowIdx: number;
+        targetIdx: number;
+        content: string;
+        columnName: string;
+        rowContext: string;
+      };
+      const jobs: Job[] = [];
+      for (let r = startIdx; r < endIdx; r++) {
+        const row = aoa[r];
+        if (!row) continue;
+
+        const rowContextObj: Record<string, any> = {};
+        for (let c = 0; c < originalHeaders.length; c++) {
+          // After splicing, original-header cells live at shifted positions.
+          // Walk the splice math once: each original col i is now at i + (#prior splices).
+          let shift = 0;
+          for (const ti of translateIndices) {
+            if (ti < c) shift++;
+          }
+          const realCol = c + shift;
+          if (row[realCol] !== undefined && row[realCol] !== "") {
+            rowContextObj[originalHeaders[c]] = row[realCol];
+          }
+        }
+        const rowContextStr = JSON.stringify(rowContextObj);
+
+        for (let i = 0; i < translateIndices.length; i++) {
+          const origIdx = translateIndices[i];
+          // After splicing, the source col i is at origIdx + i (each splice shifts later cols by 1).
+          const sourceIdx = origIdx + i;
+          const targetIdx = sourceIdx + 1;
+          const content = row[sourceIdx];
+          if (typeof content === 'string' && content.trim()) {
+            jobs.push({
+              rowIdx: r,
+              targetIdx,
+              content,
+              columnName: originalHeaders[origIdx],
+              rowContext: rowContextStr,
+            });
+          }
+        }
+      }
+
+      setExcelProgress({ current: 0, total: jobs.length });
+      let completed = 0;
+
+      // -------- PHASE 3: Run translations in parallel with concurrency cap --------
+      await runWithConcurrency(
+        jobs.length,
+        EXCEL_CONCURRENCY,
+        async (i) => {
+          const job = jobs[i];
+          const result = await translateContent({
+            content: job.content,
+            grade,
+            subject,
+            contentType: job.columnName,
+            additionalContext: job.rowContext,
+            targetLanguage,
+          });
+          aoa[job.rowIdx][job.targetIdx] = result.translatedText;
+          return result;
+        },
+        (i, result) => {
+          if (result instanceof Error) {
+            const job = jobs[i];
+            console.error(`Error translating row ${job.rowIdx}, col ${job.targetIdx}:`, result);
+            aoa[job.rowIdx][job.targetIdx] = "Translation Error";
+          }
+          completed++;
+          setExcelProgress({ current: completed, total: jobs.length });
+        },
+      );
+
+      // -------- PHASE 4: Build workbook and download --------
       const newWs = XLSX.utils.aoa_to_sheet(aoa);
       const newWb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(newWb, newWs, "Translated");
-      XLSX.writeFile(newWb, `Translated_${excelFile?.name || 'document.xlsx'}`);
-      
+      XLSX.writeFile(newWb, `Translated_${targetLanguage}_${excelFile?.name || 'document.xlsx'}`);
+
     } catch (err: any) {
       setError(err.message || 'An unexpected error occurred during Excel translation');
     } finally {
@@ -761,7 +809,7 @@ export default function Translator() {
                   {isExcelTranslating ? (
                     <>
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      Translating... {excelProgress ? `(${excelProgress.current}/${excelProgress.total})` : ''}
+                      Translating in parallel ({EXCEL_CONCURRENCY}× concurrency){excelProgress ? ` — ${excelProgress.current}/${excelProgress.total}` : ''}
                     </>
                   ) : (
                     <>
