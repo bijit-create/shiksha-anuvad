@@ -1,7 +1,11 @@
 import { TranslationRequest, TranslationResponse, ContentAnalysis } from "../types";
 import { getStoredToken } from "./auth";
 
-async function postJSON<T>(url: string, body: unknown): Promise<T> {
+interface RequestOptions {
+  signal?: AbortSignal;
+}
+
+async function postJSON<T>(url: string, body: unknown, opts: RequestOptions = {}): Promise<T> {
   const token = getStoredToken();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['x-access-token'] = token;
@@ -10,6 +14,7 @@ async function postJSON<T>(url: string, body: unknown): Promise<T> {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
+    signal: opts.signal,
   });
 
   if (response.status === 401) {
@@ -22,10 +27,16 @@ async function postJSON<T>(url: string, body: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function translateContent(request: TranslationRequest): Promise<TranslationResponse> {
-  return postJSON<TranslationResponse>('/api/translate', request);
+export async function translateContent(
+  request: TranslationRequest,
+  opts: RequestOptions = {},
+): Promise<TranslationResponse> {
+  return postJSON<TranslationResponse>('/api/translate', request, opts);
 }
 
-export async function analyzeContent(request: TranslationRequest): Promise<ContentAnalysis> {
-  return postJSON<ContentAnalysis>('/api/analyze', request);
+export async function analyzeContent(
+  request: TranslationRequest,
+  opts: RequestOptions = {},
+): Promise<ContentAnalysis> {
+  return postJSON<ContentAnalysis>('/api/analyze', request, opts);
 }

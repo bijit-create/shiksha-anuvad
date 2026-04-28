@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import { 
-  Languages, 
-  BookOpen, 
-  GraduationCap, 
-  FileText, 
-  Send, 
-  Copy, 
-  Check, 
+import { useState } from 'react';
+import {
+  Languages,
+  BookOpen,
+  GraduationCap,
+  FileText,
+  Send,
+  Copy,
+  Check,
   RotateCcw,
   Loader2,
   AlertCircle,
@@ -15,21 +15,19 @@ import {
   BrainCircuit,
   ListChecks,
   FileSpreadsheet,
-  Upload,
   Sigma,
   ChevronDown,
   Info,
   Globe,
-  Layers
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import * as XLSX from 'xlsx';
 import { GradeLevel, Subject, Language, ContentAnalysis } from '../types';
 import { translateContent, analyzeContent } from '../services/geminiService';
+import BatchExcelWizard from './BatchExcelWizard';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -44,33 +42,6 @@ function prepareMathForRender(text: string): string {
     .replace(/\\\[([\s\S]+?)\\\]/g, (_m, body) => `$$${body}$$`)
     .replace(/\\\(([\s\S]+?)\\\)/g, (_m, body) => `$${body}$`);
 }
-
-// Run async jobs with a concurrency cap. Workers pull from a shared cursor
-// so faster jobs don't wait for slower batchmates. onSettled fires once per
-// job (in completion order, not input order) — caller uses it for progress.
-async function runWithConcurrency<T>(
-  count: number,
-  concurrency: number,
-  worker: (index: number) => Promise<T>,
-  onSettled?: (index: number, result: T | Error) => void,
-): Promise<void> {
-  let cursor = 0;
-  const lanes = Array.from({ length: Math.min(concurrency, count) }, async () => {
-    while (true) {
-      const i = cursor++;
-      if (i >= count) return;
-      try {
-        const result = await worker(i);
-        onSettled?.(i, result);
-      } catch (err) {
-        onSettled?.(i, err as Error);
-      }
-    }
-  });
-  await Promise.all(lanes);
-}
-
-const EXCEL_CONCURRENCY = 4;
 
 const GRADES: GradeLevel[] = [
   'KG', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 
@@ -122,20 +93,8 @@ export default function Translator() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Excel Mode States
+  // Mode toggle (text vs Excel batch wizard)
   const [mode, setMode] = useState<'text' | 'excel'>('text');
-  const [excelFile, setExcelFile] = useState<File | null>(null);
-  const [excelFileBuffer, setExcelFileBuffer] = useState<ArrayBuffer | null>(null);
-  const [availableSheets, setAvailableSheets] = useState<string[]>([]);
-  const [selectedSheet, setSelectedSheet] = useState<string>('');
-  const [headerRowIndex, setHeaderRowIndex] = useState<number>(1);
-  const [startRowIndex, setStartRowIndex] = useState<number>(2);
-  const [endRowIndex, setEndRowIndex] = useState<number>(2);
-  const [dataRowCount, setDataRowCount] = useState<number>(0);
-  const [excelColumns, setExcelColumns] = useState<string[]>([]);
-  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
-  const [excelProgress, setExcelProgress] = useState<{ current: number, total: number } | null>(null);
-  const [isExcelTranslating, setIsExcelTranslating] = useState(false);
 
   // LaTeX Formatting Guide
   const [showLatexGuide, setShowLatexGuide] = useState(false);
@@ -198,214 +157,6 @@ export default function Translator() {
     setExplanation('');
     setAnalysis(null);
     setError(null);
-  };
-
-  const parseExcel = (buffer: ArrayBuffer, headerRow: number, sheetName?: string) => {
-    try {
-      const data = new Uint8Array(buffer);
-      const wb = XLSX.read(data, { type: 'array' });
-
-      // Always refresh the sheet list (idempotent — safe across re-parses).
-      setAvailableSheets(wb.SheetNames);
-
-      // Resolve which sheet to read: caller's choice (if valid), else first sheet.
-      const resolvedSheet = sheetName && wb.SheetNames.includes(sheetName)
-        ? sheetName
-        : wb.SheetNames[0];
-      // Only push selectedSheet from inside parseExcel on the *initial* read (when caller
-      // didn't pass one) — otherwise we'd fight the user's explicit pick.
-      if (!sheetName) setSelectedSheet(resolvedSheet);
-
-      const ws = wb.Sheets[resolvedSheet];
-      const aoa = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: "" });
-
-      const headers = (aoa[headerRow - 1] || []).map(String).filter(Boolean);
-      setExcelColumns(headers);
-
-      const dataRows = aoa.slice(headerRow).filter(row => row.length > 0);
-      setDataRowCount(dataRows.length);
-      setStartRowIndex(headerRow + 1);
-      setEndRowIndex(aoa.length);
-      setSelectedColumns([]);
-    } catch (err) {
-      console.error("Error parsing Excel:", err);
-      setError("Failed to parse Excel file. Please ensure it's a valid .xlsx or .xls file.");
-    }
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setExcelFile(file);
-    setHeaderRowIndex(1);
-    setSelectedSheet('');
-    setAvailableSheets([]);
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const buffer = evt.target?.result as ArrayBuffer;
-      setExcelFileBuffer(buffer);
-      parseExcel(buffer, 1);
-    };
-    reader.readAsArrayBuffer(file);
-  };
-
-  const handleSheetChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newSheet = e.target.value;
-    setSelectedSheet(newSheet);
-    setHeaderRowIndex(1);
-    if (excelFileBuffer) {
-      parseExcel(excelFileBuffer, 1, newSheet);
-    }
-  };
-
-  const handleHeaderRowChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseInt(e.target.value, 10);
-    if (isNaN(val) || val < 1) return;
-    setHeaderRowIndex(val);
-    if (excelFileBuffer) {
-      parseExcel(excelFileBuffer, val, selectedSheet);
-    }
-  };
-
-  const toggleColumn = (col: string) => {
-    setSelectedColumns(prev => 
-      prev.includes(col) ? prev.filter(c => c !== col) : [...prev, col]
-    );
-  };
-
-  const handleExcelTranslate = async () => {
-    if (!excelFileBuffer || selectedColumns.length === 0) return;
-
-    setIsExcelTranslating(true);
-    setError(null);
-
-    try {
-      const data = new Uint8Array(excelFileBuffer);
-      const wb = XLSX.read(data, { type: 'array' });
-      const wsname = (selectedSheet && wb.SheetNames.includes(selectedSheet))
-        ? selectedSheet
-        : wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-
-      const aoa = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: "" });
-      const headerRowIdx = headerRowIndex - 1;
-      const originalHeaders = [...(aoa[headerRowIdx] || [])];
-
-      const translateIndices = selectedColumns
-        .map(col => originalHeaders.indexOf(col))
-        .filter(idx => idx !== -1)
-        .sort((a, b) => a - b);
-
-      const startIdx = Math.max(headerRowIdx + 1, startRowIndex - 1);
-      const endIdx = Math.min(endRowIndex, aoa.length);
-
-      // -------- PHASE 1: Splice "(Lang)" header + empty cells everywhere --------
-      // Done synchronously so column geometry is stable before parallel writes.
-      for (let r = 0; r < aoa.length; r++) {
-        const row = aoa[r] || [];
-        if (r === headerRowIdx) {
-          for (let i = translateIndices.length - 1; i >= 0; i--) {
-            const origIdx = translateIndices[i];
-            row.splice(origIdx + 1, 0, `${originalHeaders[origIdx]} (${targetLanguage})`);
-          }
-        } else {
-          for (let i = translateIndices.length - 1; i >= 0; i--) {
-            const origIdx = translateIndices[i];
-            row.splice(origIdx + 1, 0, "");
-          }
-        }
-        aoa[r] = row;
-      }
-
-      // -------- PHASE 2: Build a flat job list (row × column) --------
-      type Job = {
-        rowIdx: number;
-        targetIdx: number;
-        content: string;
-        columnName: string;
-        rowContext: string;
-      };
-      const jobs: Job[] = [];
-      for (let r = startIdx; r < endIdx; r++) {
-        const row = aoa[r];
-        if (!row) continue;
-
-        const rowContextObj: Record<string, any> = {};
-        for (let c = 0; c < originalHeaders.length; c++) {
-          // After splicing, original-header cells live at shifted positions.
-          // Walk the splice math once: each original col i is now at i + (#prior splices).
-          let shift = 0;
-          for (const ti of translateIndices) {
-            if (ti < c) shift++;
-          }
-          const realCol = c + shift;
-          if (row[realCol] !== undefined && row[realCol] !== "") {
-            rowContextObj[originalHeaders[c]] = row[realCol];
-          }
-        }
-        const rowContextStr = JSON.stringify(rowContextObj);
-
-        for (let i = 0; i < translateIndices.length; i++) {
-          const origIdx = translateIndices[i];
-          // After splicing, the source col i is at origIdx + i (each splice shifts later cols by 1).
-          const sourceIdx = origIdx + i;
-          const targetIdx = sourceIdx + 1;
-          const content = row[sourceIdx];
-          if (typeof content === 'string' && content.trim()) {
-            jobs.push({
-              rowIdx: r,
-              targetIdx,
-              content,
-              columnName: originalHeaders[origIdx],
-              rowContext: rowContextStr,
-            });
-          }
-        }
-      }
-
-      setExcelProgress({ current: 0, total: jobs.length });
-      let completed = 0;
-
-      // -------- PHASE 3: Run translations in parallel with concurrency cap --------
-      await runWithConcurrency(
-        jobs.length,
-        EXCEL_CONCURRENCY,
-        async (i) => {
-          const job = jobs[i];
-          const result = await translateContent({
-            content: job.content,
-            grade,
-            subject,
-            contentType: job.columnName,
-            additionalContext: job.rowContext,
-            targetLanguage,
-          });
-          aoa[job.rowIdx][job.targetIdx] = result.translatedText;
-          return result;
-        },
-        (i, result) => {
-          if (result instanceof Error) {
-            const job = jobs[i];
-            console.error(`Error translating row ${job.rowIdx}, col ${job.targetIdx}:`, result);
-            aoa[job.rowIdx][job.targetIdx] = "Translation Error";
-          }
-          completed++;
-          setExcelProgress({ current: completed, total: jobs.length });
-        },
-      );
-
-      // -------- PHASE 4: Replace the translated sheet in-place, preserve all others --------
-      const newWs = XLSX.utils.aoa_to_sheet(aoa);
-      wb.Sheets[wsname] = newWs;
-      XLSX.writeFile(wb, `Translated_${targetLanguage}_${excelFile?.name || 'document.xlsx'}`);
-
-    } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred during Excel translation');
-    } finally {
-      setIsExcelTranslating(false);
-      setExcelProgress(null);
-    }
   };
 
   return (
@@ -702,201 +453,9 @@ export default function Translator() {
         </div>
       </div>
       ) : (
-        <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-zinc-100 space-y-8 max-w-3xl mx-auto">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-zinc-700 uppercase tracking-wide flex items-center gap-2">
-              <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
-              Batch Excel Translation
-            </h2>
-          </div>
-          
-          {!excelFile ? (
-            <div className="border-2 border-dashed border-zinc-300 rounded-2xl p-12 flex flex-col items-center justify-center text-center hover:bg-zinc-50 hover:border-indigo-300 transition-colors cursor-pointer relative group">
-              <input 
-                type="file" 
-                accept=".xlsx, .xls" 
-                onChange={handleFileUpload} 
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-              />
-              <div className="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <Upload className="w-8 h-8 text-indigo-600" />
-              </div>
-              <p className="text-base font-bold text-zinc-800">Click or drag Excel file to upload</p>
-              <p className="text-sm text-zinc-500 mt-2">Supports .xlsx and .xls formats</p>
-            </div>
-          ) : (
-            <div className="space-y-8">
-              <div className="flex items-center justify-between p-4 bg-zinc-50 rounded-xl border border-zinc-200">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 bg-white rounded-lg shadow-sm">
-                    <FileSpreadsheet className="w-6 h-6 text-emerald-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-zinc-800">{excelFile.name}</p>
-                    <p className="text-xs font-medium text-zinc-500 mt-0.5">{dataRowCount} rows detected</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => {
-                    setExcelFile(null);
-                    setExcelFileBuffer(null);
-                    setAvailableSheets([]);
-                    setSelectedSheet('');
-                    setHeaderRowIndex(1);
-                    setDataRowCount(0);
-                    setExcelColumns([]);
-                    setSelectedColumns([]);
-                    setExcelProgress(null);
-                    setError(null);
-                  }}
-                  className="text-xs font-bold text-red-600 hover:text-red-700 uppercase tracking-wider px-3 py-1.5 hover:bg-red-50 rounded-lg transition-colors"
-                >
-                  Remove
-                </button>
-              </div>
-
-              {availableSheets.length > 0 && (
-                <div className="space-y-3">
-                  <h3 className="text-sm font-bold text-zinc-700 uppercase tracking-wide flex items-center gap-2">
-                    <Layers className="w-4 h-4 text-indigo-600" />
-                    Sheet
-                    {availableSheets.length > 1 && (
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
-                        {availableSheets.length} sheets detected
-                      </span>
-                    )}
-                  </h3>
-                  <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-200 space-y-2">
-                    <label className="text-xs font-medium text-zinc-700">Pick the sheet to translate</label>
-                    <select
-                      value={selectedSheet}
-                      onChange={handleSheetChange}
-                      disabled={availableSheets.length === 1}
-                      className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-70 disabled:cursor-not-allowed"
-                    >
-                      {availableSheets.map(name => (
-                        <option key={name} value={name}>{name}</option>
-                      ))}
-                    </select>
-                    {availableSheets.length > 1 && (
-                      <p className="text-[11px] text-zinc-500 leading-relaxed">
-                        Only the selected sheet is translated. Untranslated sheets are preserved as-is in the downloaded file.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-3">
-                <h3 className="text-sm font-bold text-zinc-700 uppercase tracking-wide">Row Configuration</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-zinc-50 p-4 rounded-xl border border-zinc-200">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-medium text-zinc-700">Header Row</label>
-                    <input 
-                      type="number" 
-                      min="1" 
-                      value={headerRowIndex}
-                      onChange={handleHeaderRowChange}
-                      className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-medium text-zinc-700">Start Row</label>
-                    <input 
-                      type="number" 
-                      min={headerRowIndex + 1} 
-                      value={startRowIndex}
-                      onChange={(e) => setStartRowIndex(parseInt(e.target.value) || headerRowIndex + 1)}
-                      className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-medium text-zinc-700">End Row</label>
-                    <input 
-                      type="number" 
-                      min={startRowIndex} 
-                      value={endRowIndex}
-                      onChange={(e) => setEndRowIndex(parseInt(e.target.value) || startRowIndex)}
-                      className="w-full bg-white border border-zinc-300 rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {error && (
-                <div className="p-4 bg-red-50 border border-red-100 rounded-xl flex items-start gap-3 text-red-600">
-                  <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-                  <p className="text-sm font-medium">{error}</p>
-                </div>
-              )}
-
-              {excelColumns.length > 0 && (
-                <div className="space-y-4">
-                  <h3 className="text-sm font-bold text-zinc-700 uppercase tracking-wide">Select Columns to Translate</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {excelColumns.map(col => (
-                      <label key={col} className={cn(
-                        "flex items-center gap-3 p-3 border rounded-xl cursor-pointer transition-all",
-                        selectedColumns.includes(col) 
-                          ? "border-indigo-600 bg-indigo-50/50" 
-                          : "border-zinc-200 hover:bg-zinc-50 hover:border-zinc-300"
-                      )}>
-                        <input 
-                          type="checkbox" 
-                          checked={selectedColumns.includes(col)}
-                          onChange={() => toggleColumn(col)}
-                          className="w-4 h-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span className="text-sm font-medium text-zinc-800 truncate" title={col}>{col}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="pt-4 border-t border-zinc-100 space-y-4">
-                <button
-                  onClick={handleExcelTranslate}
-                  disabled={isExcelTranslating || selectedColumns.length === 0}
-                  className={cn(
-                    "w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg",
-                    isExcelTranslating || selectedColumns.length === 0 
-                      ? "bg-zinc-100 text-zinc-400 cursor-not-allowed shadow-none" 
-                      : "bg-indigo-600 text-white hover:bg-indigo-700 active:scale-[0.98] shadow-indigo-200/50"
-                  )}
-                >
-                  {isExcelTranslating ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Translating in parallel ({EXCEL_CONCURRENCY}× concurrency){excelProgress ? ` — ${excelProgress.current}/${excelProgress.total}` : ''}
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-5 h-5" />
-                      Translate & Download Excel
-                    </>
-                  )}
-                </button>
-
-                {excelProgress && (
-                  <div className="space-y-2 animate-in fade-in duration-300">
-                    <div className="flex justify-between text-xs font-bold text-zinc-500 uppercase tracking-wider">
-                      <span>Translation Progress</span>
-                      <span className="text-indigo-600">{Math.round((excelProgress.current / excelProgress.total) * 100)}%</span>
-                    </div>
-                    <div className="w-full bg-zinc-100 rounded-full h-2.5 overflow-hidden">
-                      <div 
-                        className="bg-indigo-600 h-full rounded-full transition-all duration-300 ease-out" 
-                        style={{ width: `${(excelProgress.current / excelProgress.total) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
+        <BatchExcelWizard grade={grade} subject={subject} />
       )}
+
 
       {/* Smart Analysis Section */}
       {mode === 'text' && analysis && (
