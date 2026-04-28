@@ -44,10 +44,14 @@ export interface SheetPlan {
   included: boolean;                                          // user toggle (default = eligible)
   headerRowIdx: number;                                       // 0-based
   rowCount: number;                                           // data rows below the header
+  populatedSourceCount: number;                               // rows where source col has non-empty content
   totalRows: number;                                          // including the header
   sourceCol: ColumnRef | null;
   existingTargets: Partial<Record<LangCode, ColumnRef>>;
   filledCounts: Partial<Record<LangCode, number>>;
+  // Per-sheet target languages — initialised from defaultLanguagePlans in the wizard,
+  // then user-mutable via per-sheet chips. Estimate / run use this, NOT the global plan.
+  enabledLangs: LangCode[];
 }
 
 export interface LanguagePlan {
@@ -119,6 +123,8 @@ export function detectSheetPlan(wb: XLSX.WorkBook, sheetName: string): SheetPlan
   const rawHeaders = (aoa[headerRowIdx] || []).map((h: any) => String(h ?? ''));
   const headers = rawHeaders.map(normalizeHeader);
 
+  const rowCount = Math.max(0, totalRows - headerRowIdx - 1);
+
   const srcIdx = findColumn(headers, SOURCE_HEADER_ALIASES);
   if (srcIdx === -1) {
     return {
@@ -127,12 +133,22 @@ export function detectSheetPlan(wb: XLSX.WorkBook, sheetName: string): SheetPlan
       ineligibleReason: 'no `en` column',
       included: false,
       headerRowIdx,
-      rowCount: Math.max(0, totalRows - headerRowIdx - 1),
+      rowCount,
+      populatedSourceCount: 0,
       totalRows,
       sourceCol: null,
       existingTargets: {},
       filledCounts: {},
+      enabledLangs: [],
     };
+  }
+
+  // Count rows where the source column actually has English content.
+  // The estimate, ETA, and per-language counts are all derived from this — NOT
+  // from `rowCount`, which often includes hundreds of trailing blank rows.
+  let populatedSourceCount = 0;
+  for (let r = headerRowIdx + 1; r < totalRows; r++) {
+    if (isNonEmptyString(aoa[r]?.[srcIdx])) populatedSourceCount++;
   }
 
   const existingTargets: Partial<Record<LangCode, ColumnRef>> = {};
@@ -143,14 +159,16 @@ export function detectSheetPlan(wb: XLSX.WorkBook, sheetName: string): SheetPlan
     if (idx === -1 || idx === srcIdx) continue;
     existingTargets[lc] = { header: rawHeaders[idx], index: idx };
 
+    // Count rows where TARGET col is filled AND source col is populated. Empty
+    // source rows aren't part of the work pool, so they shouldn't inflate the
+    // "filled" denominator either.
     let filled = 0;
     for (let r = headerRowIdx + 1; r < totalRows; r++) {
+      if (!isNonEmptyString(aoa[r]?.[srcIdx])) continue;
       if (isNonEmptyString(aoa[r]?.[idx])) filled++;
     }
     filledCounts[lc] = filled;
   }
-
-  const rowCount = Math.max(0, totalRows - headerRowIdx - 1);
 
   return {
     name: sheetName,
@@ -158,10 +176,12 @@ export function detectSheetPlan(wb: XLSX.WorkBook, sheetName: string): SheetPlan
     included: true,
     headerRowIdx,
     rowCount,
+    populatedSourceCount,
     totalRows,
     sourceCol: { header: rawHeaders[srcIdx], index: srcIdx },
     existingTargets,
     filledCounts,
+    enabledLangs: [],   // populated by the wizard from defaultLanguagePlans
   };
 }
 
@@ -389,13 +409,15 @@ export function buildCellsForSheet(
 
 /**
  * Aggregate counts for the review-step estimate.
+ *
+ * Uses per-sheet `enabledLangs` (NOT the global LanguagePlan list) and
+ * `populatedSourceCount` (NOT total rowCount) so the number reflects only
+ * cells we'd actually try to translate.
  */
 export function estimateCells(
   sheetPlans: SheetPlan[],
-  languagePlans: LanguagePlan[],
   options: { skipFilled: boolean },
 ): { total: number; bySheet: Record<string, number> } {
-  const enabledLangs = languagePlans.filter(l => l.enabled).map(l => l.code);
   const bySheet: Record<string, number> = {};
   let total = 0;
 
@@ -405,14 +427,14 @@ export function estimateCells(
       continue;
     }
     let count = 0;
-    const rowsToScan = sp.rowCount;
-    for (const lc of enabledLangs) {
+    const pool = sp.populatedSourceCount;
+    for (const lc of sp.enabledLangs) {
       const existing = sp.existingTargets[lc];
       if (existing && options.skipFilled) {
         const filled = sp.filledCounts[lc] || 0;
-        count += Math.max(0, rowsToScan - filled);
+        count += Math.max(0, pool - filled);
       } else {
-        count += rowsToScan;
+        count += pool;
       }
     }
     bySheet[sp.name] = count;

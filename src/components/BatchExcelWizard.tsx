@@ -72,7 +72,8 @@ type Action =
   | { type: 'discardResumeOffer' }
   | { type: 'restoredFromPersisted'; persisted: PersistedState; buffer: ArrayBuffer }
   | { type: 'toggleSheetIncluded'; sheet: string }
-  | { type: 'toggleLanguage'; code: LangCode }
+  | { type: 'toggleLanguage'; code: LangCode }       // global broadcast across all eligible sheets
+  | { type: 'toggleSheetLanguage'; sheet: string; code: LangCode }
   | { type: 'setSkipFilled'; value: boolean }
   | { type: 'setConcurrency'; value: number }
   | { type: 'setHeaderRow'; sheet: string; idx: number }
@@ -128,12 +129,36 @@ function reducer(state: State, action: Action): State {
           sp.name === action.sheet ? { ...sp, included: sp.eligible ? !sp.included : false } : sp,
         ),
       };
-    case 'toggleLanguage':
+    case 'toggleLanguage': {
+      // Global toggle: also broadcast to every eligible sheet so the per-sheet
+      // chips stay in sync with the global state.
+      const lp = state.languagePlans.find(l => l.code === action.code);
+      const nextEnabled = lp ? !lp.enabled : true;
       return {
         ...state,
-        languagePlans: state.languagePlans.map(lp =>
-          lp.code === action.code ? { ...lp, enabled: !lp.enabled } : lp,
+        languagePlans: state.languagePlans.map(l =>
+          l.code === action.code ? { ...l, enabled: nextEnabled } : l,
         ),
+        sheetPlans: state.sheetPlans.map(sp => {
+          if (!sp.eligible) return sp;
+          const has = sp.enabledLangs.includes(action.code);
+          if (nextEnabled && !has) return { ...sp, enabledLangs: [...sp.enabledLangs, action.code] };
+          if (!nextEnabled && has) return { ...sp, enabledLangs: sp.enabledLangs.filter(c => c !== action.code) };
+          return sp;
+        }),
+      };
+    }
+    case 'toggleSheetLanguage':
+      return {
+        ...state,
+        sheetPlans: state.sheetPlans.map(sp => {
+          if (sp.name !== action.sheet) return sp;
+          const has = sp.enabledLangs.includes(action.code);
+          return {
+            ...sp,
+            enabledLangs: has ? sp.enabledLangs.filter(c => c !== action.code) : [...sp.enabledLangs, action.code],
+          };
+        }),
       };
     case 'setSkipFilled':
       return { ...state, options: { ...state.options, skipFilled: action.value } };
@@ -191,6 +216,12 @@ export default function BatchExcelWizard({ grade, subject }: Props) {
       const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
       const sheetPlans = detectAllSheets(wb);
       const languagePlans = defaultLanguagePlans(sheetPlans);
+      const defaultEnabled = languagePlans.filter(l => l.enabled).map(l => l.code);
+      // Seed each sheet's per-sheet enabledLangs from the global defaults so
+      // the per-sheet chips render with sensible initial state.
+      for (const sp of sheetPlans) {
+        if (sp.eligible) sp.enabledLangs = [...defaultEnabled];
+      }
 
       // Look for prior run on the same file (by hash).
       const persisted = loadPersistedState();
@@ -217,11 +248,10 @@ export default function BatchExcelWizard({ grade, subject }: Props) {
     try {
       const wb = XLSX.read(new Uint8Array(state.buffer), { type: 'array' });
       const aoaBySheet: Record<string, any[][]> = {};
-      const enabledLangs = state.resumeOffer.languagePlans.filter(l => l.enabled).map(l => l.code);
       for (const sp of state.resumeOffer.sheetPlans) {
         if (!sp.eligible || !sp.included) continue;
         const aoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[sp.name], { header: 1, defval: '' });
-        applySplicesForSheet(aoa, sp, enabledLangs);
+        applySplicesForSheet(aoa, sp, sp.enabledLangs);
         aoaBySheet[sp.name] = aoa;
       }
       // Replay completed-cell results into the AOAs.
@@ -252,14 +282,14 @@ export default function BatchExcelWizard({ grade, subject }: Props) {
         // Build the AOAs from the buffer, splice, build cell list.
         const wb = XLSX.read(new Uint8Array(state.buffer), { type: 'array' });
         const aoaBySheet: Record<string, any[][]> = {};
-        const enabledLangs = state.languagePlans.filter(l => l.enabled).map(l => l.code);
         const allCells: Cell[] = [];
 
         for (const sp of state.sheetPlans) {
           if (!sp.eligible || !sp.included) continue;
+          if (sp.enabledLangs.length === 0) continue;        // user unticked everything
           const aoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[sp.name], { header: 1, defval: '' });
-          const spliceResult = applySplicesForSheet(aoa, sp, enabledLangs);
-          const sheetCells = buildCellsForSheet(aoa, sp, enabledLangs, spliceResult, {
+          const spliceResult = applySplicesForSheet(aoa, sp, sp.enabledLangs);
+          const sheetCells = buildCellsForSheet(aoa, sp, sp.enabledLangs, spliceResult, {
             skipFilled: state.options.skipFilled,
           });
           aoaBySheet[sp.name] = aoa;
@@ -488,19 +518,14 @@ function ReviewStep({
   const ineligibleSheets = state.sheetPlans.filter(sp => !sp.eligible);
   const totalEligibleRows = eligibleSheets.reduce((sum, sp) => sum + sp.rowCount, 0);
 
-  const enabledLangs = useMemo(
-    () => state.languagePlans.filter(l => l.enabled).map(l => l.code),
-    [state.languagePlans],
-  );
-
   const estimate = useMemo(
-    () => estimateCells(state.sheetPlans, state.languagePlans, state.options),
-    [state.sheetPlans, state.languagePlans, state.options],
+    () => estimateCells(state.sheetPlans, state.options),
+    [state.sheetPlans, state.options],
   );
 
   const etaMinutes = Math.ceil((estimate.total * 3) / state.options.concurrency / 60);
-  const canStart = estimate.total > 0 && enabledLangs.length > 0 &&
-    state.sheetPlans.some(s => s.eligible && s.included);
+  const canStart = estimate.total > 0 &&
+    state.sheetPlans.some(s => s.eligible && s.included && s.enabledLangs.length > 0);
 
   const [showIneligible, setShowIneligible] = useState(false);
 
@@ -560,7 +585,7 @@ function ReviewStep({
         </h3>
         <div className="border border-zinc-200 rounded-xl overflow-hidden divide-y divide-zinc-100">
           {eligibleSheets.map(sp => (
-            <SheetRow key={sp.name} plan={sp} dispatch={dispatch} languagePlans={state.languagePlans} />
+            <SheetRow key={sp.name} plan={sp} dispatch={dispatch} />
           ))}
         </div>
 
@@ -684,55 +709,84 @@ function ReviewStep({
 function SheetRow({
   plan,
   dispatch,
-  languagePlans,
 }: {
   plan: SheetPlan;
   dispatch: React.Dispatch<Action>;
-  languagePlans: LanguagePlan[];
 }) {
+  // Show every language that's either present as a column on this sheet OR
+  // ticked on this sheet (the latter could be a "new column" choice). This
+  // keeps the row stable when the user toggles per-sheet langs.
+  const langsToShow = LANG_CODES.filter(lc =>
+    plan.existingTargets[lc] || plan.enabledLangs.includes(lc),
+  );
+
+  const populated = plan.populatedSourceCount;
+  const populatedLabel = populated === plan.rowCount
+    ? `${populated.toLocaleString()} rows`
+    : `${plan.rowCount.toLocaleString()} rows · ${populated.toLocaleString()} with \`en\``;
+
   return (
-    <label className={cn(
-      'flex items-start gap-3 p-3 hover:bg-zinc-50 cursor-pointer',
+    <div className={cn(
+      'flex items-start gap-3 p-3 hover:bg-zinc-50',
       plan.included && 'bg-indigo-50/30',
     )}>
       <input
         type="checkbox"
         checked={plan.included}
         onChange={() => dispatch({ type: 'toggleSheetIncluded', sheet: plan.name })}
-        className="mt-1 w-4 h-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+        className="mt-1 w-4 h-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
       />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="font-medium text-zinc-800 text-sm truncate">{plan.name}</span>
-          <span className="text-[11px] text-zinc-400">{plan.rowCount.toLocaleString()} rows</span>
+          <span className="text-[11px] text-zinc-400">{populatedLabel}</span>
         </div>
-        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
-          <span className="text-zinc-500">
-            <span className="font-semibold">en</span> →
+
+        <div className="mt-2 flex flex-wrap gap-1.5 items-center">
+          <span className="text-[11px] text-zinc-500 mr-1">
+            <span className="font-mono font-semibold">en</span> →
           </span>
-          {LANG_CODES.map(lc => {
-            const lp = languagePlans.find(l => l.code === lc);
-            if (!lp || !lp.enabled) return null;
+
+          {langsToShow.length === 0 && (
+            <span className="text-[11px] text-zinc-400 italic">Pick at least one language above</span>
+          )}
+
+          {langsToShow.map(lc => {
+            const checked = plan.enabledLangs.includes(lc);
             const existing = plan.existingTargets[lc];
             const filled = plan.filledCounts[lc] || 0;
-            if (existing) {
-              return (
-                <span key={lc} className="text-zinc-600">
-                  <span className="font-mono font-semibold">{lc}</span>
-                  <span className="text-zinc-400"> ({filled}/{plan.rowCount})</span>
-                </span>
-              );
-            }
+            const remaining = Math.max(0, populated - filled);
             return (
-              <span key={lc} className="text-amber-700">
-                <span className="font-mono font-semibold">+{lc}</span>
-                <span className="text-amber-600"> (new)</span>
-              </span>
+              <button
+                key={lc}
+                type="button"
+                disabled={!plan.included}
+                onClick={() => dispatch({ type: 'toggleSheetLanguage', sheet: plan.name, code: lc })}
+                className={cn(
+                  'flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] font-medium transition-all cursor-pointer',
+                  checked && existing && 'bg-indigo-50 border-indigo-300 text-indigo-800',
+                  checked && !existing && 'bg-amber-50 border-amber-300 text-amber-800',
+                  !checked && 'bg-white border-zinc-200 text-zinc-500 hover:border-zinc-300',
+                  !plan.included && 'opacity-50 cursor-not-allowed',
+                )}
+                title={
+                  existing
+                    ? `${filled}/${populated} populated rows already filled · ${remaining} to translate`
+                    : `Will splice a new column "${lc} (${LANG_CODE_TO_NAME[lc]})" — ${populated} cells`
+                }
+              >
+                <span className={cn('font-mono', checked && existing && 'text-indigo-600', checked && !existing && 'text-amber-700')}>
+                  {existing ? lc : `+${lc}`}
+                </span>
+                <span className="text-[10px] opacity-80">
+                  {existing ? `${filled}/${populated}` : `${populated} new`}
+                </span>
+              </button>
             );
           })}
         </div>
       </div>
-    </label>
+    </div>
   );
 }
 
