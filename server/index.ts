@@ -6,7 +6,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { translate, analyze, getModel } from './lib/gemini.js';
+import { translate, analyze, getModel, getKeyCount } from './lib/gemini.js';
 import { checkAccess, getExpectedToken, ACCESS_TOKEN_HEADER } from './lib/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,10 +14,19 @@ const __dirname = path.dirname(__filename);
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 
-if (!process.env.GEMINI_API_KEY) {
-  console.error('[fatal] GEMINI_API_KEY is not set. Copy .env.example to .env.local and fill it in.');
+// Validate at least one Gemini API key is configured. Supports any of:
+//   GEMINI_API_KEYS    (comma-separated)
+//   GEMINI_API_KEY_1+  (numbered)
+//   GEMINI_API_KEY     (single — legacy)
+const hasAnyKey =
+  !!process.env.GEMINI_API_KEYS?.trim() ||
+  !!process.env.GEMINI_API_KEY_1?.trim() ||
+  !!process.env.GEMINI_API_KEY?.trim();
+if (!hasAnyKey) {
+  console.error('[fatal] No Gemini API key configured. Set GEMINI_API_KEYS (comma-separated), GEMINI_API_KEY_1+, or GEMINI_API_KEY.');
   process.exit(1);
 }
+console.log(`[shiksha-anuvad] ${getKeyCount()} Gemini key(s) configured`);
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -27,7 +36,13 @@ app.get('/api/health', (req: Request, res: Response) => {
   const authRequired = expected !== null;
   const provided = (req.headers[ACCESS_TOKEN_HEADER] || '').toString().trim();
   const authenticated = !authRequired || provided === expected;
-  res.json({ ok: true, model: getModel(), authRequired, authenticated });
+  res.json({
+    ok: true,
+    model: getModel(),
+    apiKeyCount: getKeyCount(),
+    authRequired,
+    authenticated,
+  });
 });
 
 app.post('/api/translate', async (req: Request, res: Response) => {

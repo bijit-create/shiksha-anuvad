@@ -151,13 +151,21 @@ Share the token with people who should have access. If it leaks, rotate by updat
 
 ## Environment variables
 
-| Variable            | Required | Default                   | Notes                                                           |
-|---------------------|----------|---------------------------|-----------------------------------------------------------------|
-| `GEMINI_API_KEY`    | yes      | —                         | Server-side only. Set as a Vercel env var.                      |
-| `APP_ACCESS_TOKEN`  | no       | — (lock disabled)         | Shared token gating `/api/translate` and `/api/analyze`.        |
-| `GEMINI_MODEL`      | no       | `gemini-3.1-pro-preview`  | Override to any available Gemini model.                         |
-| `PORT`              | no       | `8080`                    | Express HTTP port (ignored on Vercel).                          |
-| `BACKEND_URL`       | no (dev) | `http://localhost:8080`   | Vite dev-server proxy target.                                   |
+| Variable             | Required          | Default                   | Notes                                                                                                              |
+|----------------------|-------------------|---------------------------|--------------------------------------------------------------------------------------------------------------------|
+| `GEMINI_API_KEYS`    | one of these 3 ✓  | —                         | Comma-separated list of keys. Backend round-robins with per-key cool-off on 429.                                  |
+| `GEMINI_API_KEY_1+`  | one of these 3 ✓  | —                         | Numbered env vars (`GEMINI_API_KEY_1`, `..._2`, …) — alternative to `GEMINI_API_KEYS`.                            |
+| `GEMINI_API_KEY`     | one of these 3 ✓  | —                         | Single-key legacy fallback. Use for low-volume / dev. Server-side only.                                           |
+| `APP_ACCESS_TOKEN`   | no                | — (lock disabled)         | Shared token gating `/api/translate` and `/api/analyze`.                                                          |
+| `GEMINI_MODEL`       | no                | `gemini-3.1-pro-preview`  | Override to any available Gemini model.                                                                            |
+| `PORT`               | no                | `8080`                    | Express HTTP port (ignored on Vercel).                                                                             |
+| `BACKEND_URL`        | no (dev)          | `http://localhost:8080`   | Vite dev-server proxy target.                                                                                      |
+
+### Multiple Gemini keys
+
+For heavy batch runs (CLMS-scale workbooks), configuring 3-4 keys lets the backend spread requests across them. When any single key hits a 429, that key gets a 30-second cool-off and traffic shifts to the others; if all keys are cooling, the request waits for the soonest one to recover.
+
+Quickest setup on Vercel: Project → Settings → Environment Variables → add `GEMINI_API_KEYS` with `key1,key2,key3` as the value. Redeploy. `/api/health` will report `apiKeyCount: 3` once the change is live.
 
 ## Project layout
 

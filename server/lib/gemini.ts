@@ -1,17 +1,82 @@
 import { GoogleGenAI } from '@google/genai';
 
-let _client: GoogleGenAI | null = null;
+// Per-key cool-off window after a 429 / quota error. While a key is cooling,
+// the round-robin picker skips it. 30s is the typical Gemini quota refill.
+const COOLING_MS = 30_000;
 
-function getClient(): GoogleGenAI {
-  if (_client) return _client;
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not set on the server');
-  _client = new GoogleGenAI({ apiKey });
-  return _client;
+let _clients: GoogleGenAI[] | null = null;
+let _cursor = 0;
+const _coolingUntil: number[] = [];   // timestamp ms when key i becomes available again
+
+function loadKeys(): string[] {
+  // Sources of API keys, in priority order:
+  //   1. GEMINI_API_KEYS (comma-separated, single env var — easiest for Vercel)
+  //   2. GEMINI_API_KEY_1, GEMINI_API_KEY_2, ... (numbered env vars)
+  //   3. GEMINI_API_KEY (single legacy fallback)
+  const keys: string[] = [];
+  const csv = process.env.GEMINI_API_KEYS;
+  if (csv) {
+    for (const k of csv.split(',')) {
+      const trimmed = k.trim();
+      if (trimmed) keys.push(trimmed);
+    }
+  }
+  if (keys.length === 0) {
+    let i = 1;
+    while (true) {
+      const k = process.env[`GEMINI_API_KEY_${i}`];
+      if (!k) break;
+      const trimmed = k.trim();
+      if (trimmed) keys.push(trimmed);
+      i++;
+    }
+  }
+  if (keys.length === 0 && process.env.GEMINI_API_KEY) {
+    const trimmed = process.env.GEMINI_API_KEY.trim();
+    if (trimmed) keys.push(trimmed);
+  }
+  return keys;
+}
+
+function getClients(): GoogleGenAI[] {
+  if (_clients) return _clients;
+  const keys = loadKeys();
+  if (keys.length === 0) throw new Error('GEMINI_API_KEY is not set on the server');
+  _clients = keys.map(apiKey => new GoogleGenAI({ apiKey }));
+  return _clients;
+}
+
+export function getKeyCount(): number {
+  try { return getClients().length; } catch { return 0; }
 }
 
 export function getModel(): string {
   return process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
+}
+
+/**
+ * Pick the next non-cooling client in round-robin order. Returns null if every
+ * key is currently in cool-off. Also reports the wait time until the soonest
+ * key recovers (caller can sleep that long instead of busy-looping).
+ */
+function pickClient(): { client: GoogleGenAI; idx: number } | { waitMs: number } {
+  const clients = getClients();
+  const now = Date.now();
+  for (let i = 0; i < clients.length; i++) {
+    const idx = (_cursor + i) % clients.length;
+    const cool = _coolingUntil[idx] || 0;
+    if (cool <= now) {
+      _cursor = idx + 1;
+      return { client: clients[idx], idx };
+    }
+  }
+  // All cooling — return the soonest recovery time.
+  let earliest = Infinity;
+  for (let i = 0; i < clients.length; i++) {
+    const t = _coolingUntil[i] || 0;
+    if (t < earliest) earliest = t;
+  }
+  return { waitMs: Math.max(500, earliest - now) };
 }
 
 const MATH_OPEN = '[MATH_START]';
@@ -117,9 +182,29 @@ function authoritiesBlock(target: string): string {
   return list.map(s => `   - ${s}`).join('\n');
 }
 
-async function callGemini(systemInstruction: string, prompt: string, retries = 4, backoff = 3000): Promise<any> {
+function isRateLimitError(err: any): boolean {
+  const s = typeof err === 'object'
+    ? JSON.stringify(err, Object.getOwnPropertyNames(err))
+    : String(err);
+  return s.includes('429')
+    || s.includes('RESOURCE_EXHAUSTED')
+    || s.includes('quota')
+    || err?.status === 429;
+}
+
+async function callGemini(systemInstruction: string, prompt: string, retriesLeft = 6): Promise<any> {
+  const pick = pickClient();
+  if ('waitMs' in pick) {
+    // Every key is cooling. Wait for the soonest one to recover.
+    const totalKeys = getClients().length;
+    console.warn(`[gemini] all ${totalKeys} key(s) cooling; waiting ${pick.waitMs}ms`);
+    await new Promise(r => setTimeout(r, pick.waitMs));
+    return callGemini(systemInstruction, prompt, retriesLeft);
+  }
+
+  const { client, idx } = pick;
+  const totalKeys = getClients().length;
   try {
-    const client = getClient();
     const response = await client.models.generateContent({
       model: getModel(),
       contents: [{ parts: [{ text: prompt }] }],
@@ -127,17 +212,10 @@ async function callGemini(systemInstruction: string, prompt: string, retries = 4
     });
     return JSON.parse(response.text || '{}');
   } catch (error: any) {
-    const errorStr = typeof error === 'object'
-      ? JSON.stringify(error, Object.getOwnPropertyNames(error))
-      : String(error);
-    const isRateLimit = errorStr.includes('429')
-      || errorStr.includes('RESOURCE_EXHAUSTED')
-      || errorStr.includes('quota')
-      || error?.status === 429;
-    if (isRateLimit && retries > 0) {
-      console.warn(`[gemini] rate-limited, retrying in ${backoff}ms (${retries} attempts left)`);
-      await new Promise(r => setTimeout(r, backoff));
-      return callGemini(systemInstruction, prompt, retries - 1, backoff * 1.5);
+    if (isRateLimitError(error)) {
+      _coolingUntil[idx] = Date.now() + COOLING_MS;
+      console.warn(`[gemini] key #${idx + 1}/${totalKeys} rate-limited; cooling ${COOLING_MS}ms; ${retriesLeft} retries left`);
+      if (retriesLeft > 0) return callGemini(systemInstruction, prompt, retriesLeft - 1);
     }
     throw error;
   }
