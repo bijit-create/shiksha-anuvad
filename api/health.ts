@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getModel, getKeyCount } from '../server/lib/gemini.js';
+import { getModel, getFastModel, getKeyCount } from '../server/lib/gemini.js';
 import { getExpectedToken, ACCESS_TOKEN_HEADER } from '../server/lib/auth.js';
 
 export const config = { maxDuration: 10 };
@@ -15,6 +15,7 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   res.status(200).json({
     ok: true,
     model: getModel(),
+    fastModel: getFastModel(),
     apiKeyCount: getKeyCount(),
     authRequired,
     authenticated,

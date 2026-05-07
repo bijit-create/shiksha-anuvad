@@ -54,6 +54,10 @@ export function getModel(): string {
   return process.env.GEMINI_MODEL || 'gemini-3.1-pro-preview';
 }
 
+export function getFastModel(): string {
+  return process.env.GEMINI_FAST_MODEL || 'gemini-2.5-flash';
+}
+
 /**
  * Pick the next non-cooling client in round-robin order. Returns null if every
  * key is currently in cool-off. Also reports the wait time until the soonest
@@ -192,30 +196,47 @@ function isRateLimitError(err: any): boolean {
     || err?.status === 429;
 }
 
-async function callGemini(systemInstruction: string, prompt: string, retriesLeft = 6): Promise<any> {
+function summarizeGeminiError(err: any): string {
+  if (err?.message) return err.message;
+  if (typeof err === 'object') return JSON.stringify(err, Object.getOwnPropertyNames(err));
+  return String(err);
+}
+
+async function callGemini(
+  systemInstruction: string,
+  prompt: string,
+  retriesLeft = 6,
+  model = getModel(),
+  allowFastFallback = true,
+): Promise<any> {
   const pick = pickClient();
   if ('waitMs' in pick) {
     // Every key is cooling. Wait for the soonest one to recover.
     const totalKeys = getClients().length;
     console.warn(`[gemini] all ${totalKeys} key(s) cooling; waiting ${pick.waitMs}ms`);
     await new Promise(r => setTimeout(r, pick.waitMs));
-    return callGemini(systemInstruction, prompt, retriesLeft);
+    return callGemini(systemInstruction, prompt, retriesLeft, model, allowFastFallback);
   }
 
   const { client, idx } = pick;
   const totalKeys = getClients().length;
   try {
     const response = await client.models.generateContent({
-      model: getModel(),
+      model,
       contents: [{ parts: [{ text: prompt }] }],
       config: { systemInstruction, responseMimeType: 'application/json' },
     });
     return JSON.parse(response.text || '{}');
   } catch (error: any) {
+    const fastModel = getFastModel();
+    if (allowFastFallback && model !== fastModel) {
+      console.warn(`[gemini] ${model} failed; retrying once with fast model ${fastModel}: ${summarizeGeminiError(error)}`);
+      return callGemini(systemInstruction, prompt, retriesLeft, fastModel, false);
+    }
     if (isRateLimitError(error)) {
       _coolingUntil[idx] = Date.now() + COOLING_MS;
       console.warn(`[gemini] key #${idx + 1}/${totalKeys} rate-limited; cooling ${COOLING_MS}ms; ${retriesLeft} retries left`);
-      if (retriesLeft > 0) return callGemini(systemInstruction, prompt, retriesLeft - 1);
+      if (retriesLeft > 0) return callGemini(systemInstruction, prompt, retriesLeft - 1, model, allowFastFallback);
     }
     throw error;
   }

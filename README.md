@@ -119,7 +119,7 @@ Streamlit is Python-only — hosting this app there would mean rewriting the who
 
 | Method | Path             | Body                                                           | Returns                          |
 |--------|------------------|----------------------------------------------------------------|----------------------------------|
-| GET    | `/api/health`    | —                                                              | `{ ok, model }`                  |
+| GET    | `/api/health`    | —                                                              | `{ ok, model, fastModel }`       |
 | POST   | `/api/translate` | `{ content, grade?, subject?, contentType?, additionalContext? }` | `{ translatedText, explanation }` |
 | POST   | `/api/analyze`   | `{ content, grade?, subject? }`                                | `ContentAnalysis`                |
 
@@ -158,6 +158,7 @@ Share the token with people who should have access. If it leaks, rotate by updat
 | `GEMINI_API_KEY`     | one of these 3 ✓  | —                         | Single-key legacy fallback. Use for low-volume / dev. Server-side only.                                           |
 | `APP_ACCESS_TOKEN`   | no                | — (lock disabled)         | Shared token gating `/api/translate` and `/api/analyze`.                                                          |
 | `GEMINI_MODEL`       | no                | `gemini-3.1-pro-preview`  | Override to any available Gemini model.                                                                            |
+| `GEMINI_FAST_MODEL`  | no                | `gemini-2.5-flash`        | Fallback model used only after the first generation attempt fails.                                                  |
 | `PORT`               | no                | `8080`                    | Express HTTP port (ignored on Vercel).                                                                             |
 | `BACKEND_URL`        | no (dev)          | `http://localhost:8080`   | Vite dev-server proxy target.                                                                                      |
 
@@ -166,6 +167,10 @@ Share the token with people who should have access. If it leaks, rotate by updat
 For heavy batch runs (CLMS-scale workbooks), configuring 3-4 keys lets the backend spread requests across them. When any single key hits a 429, that key gets a 30-second cool-off and traffic shifts to the others; if all keys are cooling, the request waits for the soonest one to recover.
 
 Quickest setup on Vercel: Project → Settings → Environment Variables → add `GEMINI_API_KEYS` with `key1,key2,key3` as the value. Redeploy. `/api/health` will report `apiKeyCount: 3` once the change is live.
+
+### Function duration
+
+`/api/translate` and `/api/analyze` are configured with a 300-second max duration for Vercel Pro deployments. This gives slow Gemini requests more room than the Hobby 60-second ceiling, but Gemini 503 capacity errors still depend on the selected Gemini model and API quota.
 
 ## Project layout
 
