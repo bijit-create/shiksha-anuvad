@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: shiksha-anuvad
+    runtime: docker
+    repo: https://github.com/bijit-create/shiksha-anuvad
+    branch: main
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: GEMINI_API_KEYS
+        sync: false
+      - key: APP_ACCESS_TOKEN
+        sync: false
+      - key: PORT
+        value: "8080"
