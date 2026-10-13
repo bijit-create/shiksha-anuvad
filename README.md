@@ -123,31 +123,34 @@ Streamlit is Python-only — hosting this app there would mean rewriting the who
 | POST   | `/api/translate` | `{ content, grade?, subject?, contentType?, additionalContext? }` | `{ translatedText, explanation }` |
 | POST   | `/api/analyze`   | `{ content, grade?, subject? }`                                | `ContentAnalysis`                |
 
-## Access control (lockscreen)
+## Sign-in
 
-The app supports a shared-token lock to restrict who can use the deployed site. Useful because Vercel's built-in password protection is a Pro-plan feature — this achieves the same effect on the free Hobby plan.
+Anyone with a **convegenius.ai** Google or email account can sign in (Supabase Auth, project `cg-glossary`).
+The domain is enforced three times: the Google account picker (`hd`), the API (every `/api/translate` and
+`/api/analyze` call needs a valid Supabase access token for a convegenius.ai address), and a database trigger
+that refuses to create accounts on any other domain.
 
-Set an `APP_ACCESS_TOKEN` env var on the server. When set:
-- Every `/api/translate` and `/api/analyze` call requires an `x-access-token` header matching that value.
-- The frontend shows a lockscreen on first visit, validates the token via `/api/health`, and stores it in `localStorage` for subsequent visits.
-- `/api/health` stays open (no auth) so uptime probes keep working.
+One-time setup in the Supabase dashboard (project `cg-glossary`):
+1. Authentication → Sign In / Providers → **Google**: enable, paste the OAuth client ID and secret from a Google
+   Cloud OAuth client (type "Web application") in the ConveGenius Workspace. Authorised redirect URI:
+   `https://grimpkecuvybjkpicaoo.supabase.co/auth/v1/callback`.
+2. Authentication → URL Configuration: Site URL = the deployed app URL; add `http://localhost:3000` to redirect URLs.
+3. Email links work without step 1, but Supabase's built-in mailer sends only a few emails per hour; add SMTP
+   for team use.
 
-When `APP_ACCESS_TOKEN` is **unset** or empty, the lock is disabled and everything is public. Handy for local dev.
+## Glossary-locked translation
 
-Generate a strong token:
+Each `/api/translate` request:
+1. looks up the English terms of the source in the ConveGenius glossary (R2) for the target language, filtered by grade;
+2. adds them to the prompt as REQUIRED (approved) or PREFERRED (printed in the NCERT textbook, not yet reviewed),
+   with the unit/abbreviation rules for the grade band (R1) and the house-style rules (R3);
+3. checks the output for each term and for English left in, and returns that report with the translation
+   (shown under the translation in the app);
+4. logs the request (no source text) in `translation_log`.
 
-```bash
-node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
-```
-
-Then set it on Vercel (Dashboard → Project → Settings → Environment Variables → `APP_ACCESS_TOKEN`), or via CLI:
-
-```bash
-vercel env add APP_ACCESS_TOKEN   # paste; apply to production + preview
-vercel --prod                      # redeploy
-```
-
-Share the token with people who should have access. If it leaks, rotate by updating the env var and redeploying — localStorage tokens will start failing and users will see the lockscreen again.
+The server keeps one in-memory index per language and re-checks `glossary_meta.version` at most once a minute,
+so a request normally adds no database round trip. Code: `server/lib/glossary.ts`, `server/lib/pipeline.ts`.
+The glossary itself is filled by the batch pipeline in `Content Governance/Glossary_pipeline/`.
 
 ## Environment variables
 
@@ -156,7 +159,10 @@ Share the token with people who should have access. If it leaks, rotate by updat
 | `GEMINI_API_KEYS`    | one of these 3 ✓  | —                         | Comma-separated list of keys. Backend round-robins with per-key cool-off on 429.                                  |
 | `GEMINI_API_KEY_1+`  | one of these 3 ✓  | —                         | Numbered env vars (`GEMINI_API_KEY_1`, `..._2`, …) — alternative to `GEMINI_API_KEYS`.                            |
 | `GEMINI_API_KEY`     | one of these 3 ✓  | —                         | Single-key legacy fallback. Use for low-volume / dev. Server-side only.                                           |
-| `APP_ACCESS_TOKEN`   | no                | — (lock disabled)         | Shared token gating `/api/translate` and `/api/analyze`.                                                          |
+| `VITE_SUPABASE_URL`  | yes               | —                         | Supabase project URL (frontend and server).                                                                       |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | yes    | —                         | Supabase publishable key (safe in the browser).                                                                   |
+| `ALLOWED_EMAIL_DOMAIN` | no              | `convegenius.ai`          | Domain allowed to sign in (server); `VITE_ALLOWED_EMAIL_DOMAIN` for the frontend.                                 |
+| `GLOSSARY_INCLUDE_CANDIDATES` | no       | `true`                    | `false` locks only approved glossary terms.                                                                       |
 | `GEMINI_MODEL`       | no                | `gemini-3.1-pro-preview`  | Override to any available Gemini model.                                                                            |
 | `GEMINI_FAST_MODEL`  | no                | `gemini-2.5-flash`        | Fallback model used only after the first generation attempt fails.                                                  |
 | `PORT`               | no                | `8080`                    | Express HTTP port (ignored on Vercel).                                                                             |

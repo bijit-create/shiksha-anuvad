@@ -25,7 +25,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { GradeLevel, Subject, Language, ContentAnalysis } from '../types';
+import { GradeLevel, Subject, Language, ContentAnalysis, GlossaryReport } from '../types';
 import { translateContent, analyzeContent } from '../services/geminiService';
 import BatchExcelWizard from './BatchExcelWizard';
 
@@ -87,6 +87,7 @@ export default function Translator() {
   
   const [output, setOutput] = useState('');
   const [explanation, setExplanation] = useState('');
+  const [glossary, setGlossary] = useState<GlossaryReport | null>(null);
   const [analysis, setAnalysis] = useState<ContentAnalysis | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -114,7 +115,8 @@ export default function Translator() {
       });
       setOutput(result.translatedText);
       setExplanation(result.explanation || '');
-      
+      setGlossary(result.glossary || null);
+
       // Automatically trigger analysis for longer content
       if (input.length > 50) {
         handleAnalyze();
@@ -155,6 +157,7 @@ export default function Translator() {
     setInput('');
     setOutput('');
     setExplanation('');
+    setGlossary(null);
     setAnalysis(null);
     setError(null);
   };
@@ -438,6 +441,42 @@ export default function Translator() {
               "Translated content will appear here..."
             )}
           </div>
+
+          {/* Glossary: terms locked in from the ConveGenius glossary, and whether the output used them */}
+          {glossary && !isLoading && output && (glossary.terms.length > 0 || glossary.latinNotAllowed.length > 0) && (
+            <div className="bg-indigo-50/60 border border-indigo-100 rounded-xl p-4 space-y-3">
+              <h3 className="text-xs font-bold text-indigo-700 uppercase tracking-wider flex items-center gap-2">
+                <BookOpen className="w-3.5 h-3.5" /> Glossary
+                <span className="font-normal normal-case text-indigo-400">
+                  v{glossary.version}{glossary.band ? ` · grade band ${glossary.band}` : ''}
+                </span>
+              </h3>
+              {glossary.terms.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {glossary.terms.map((t) => (
+                    <span
+                      key={`${t.en}-${t.target}`}
+                      title={`${t.sense || t.en} · ${t.status === 'approved' ? 'approved' : 'textbook, not yet reviewed'}${t.found ? '' : ' · not found in the output'}`}
+                      className={cn(
+                        'text-xs px-2 py-1 rounded-lg border',
+                        t.found ? 'bg-white border-indigo-100 text-zinc-700' : 'bg-red-50 border-red-200 text-red-700',
+                      )}
+                    >
+                      {t.en} → <span className="font-hindi">{t.target}</span>
+                      {t.status === 'candidate' && <span className="text-zinc-400"> *</span>}
+                      {!t.found && ' ✗'}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {glossary.latinNotAllowed.length > 0 && (
+                <p className="text-xs text-red-700">
+                  English left in the translation: {glossary.latinNotAllowed.join(', ')}
+                </p>
+              )}
+              <p className="text-[11px] text-indigo-400">* from the NCERT textbook, not yet reviewed. ✗ = glossary term not found in the output.</p>
+            </div>
+          )}
 
           {/* Explanation / Insights */}
           {explanation && !isLoading && (

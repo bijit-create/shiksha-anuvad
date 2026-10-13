@@ -1,14 +1,14 @@
 import { TranslationRequest, TranslationResponse, ContentAnalysis } from "../types";
-import { getStoredToken } from "./auth";
+import { getAccessToken, signOut } from "./auth";
 
 interface RequestOptions {
   signal?: AbortSignal;
 }
 
 async function postJSON<T>(url: string, body: unknown, opts: RequestOptions = {}): Promise<T> {
-  const token = getStoredToken();
+  const token = await getAccessToken();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) headers['x-access-token'] = token;
+  if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const response = await fetch(url, {
     method: 'POST',
@@ -18,7 +18,8 @@ async function postJSON<T>(url: string, body: unknown, opts: RequestOptions = {}
   });
 
   if (response.status === 401) {
-    throw new Error('Unauthorized — the access token is missing or invalid.');
+    await signOut();
+    throw new Error('Your session has expired. Please sign in again.');
   }
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));

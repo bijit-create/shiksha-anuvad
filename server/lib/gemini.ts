@@ -202,13 +202,26 @@ function summarizeGeminiError(err: any): string {
   return String(err);
 }
 
+export interface GeminiUsage {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+/** Parsed JSON reply plus the token usage of the call that produced it. */
+export interface GeminiResult<T = any> {
+  json: T;
+  usage: GeminiUsage;
+}
+
 async function callGemini(
   systemInstruction: string,
   prompt: string,
   retriesLeft = 6,
   model = getModel(),
   allowFastFallback = true,
-): Promise<any> {
+): Promise<GeminiResult> {
   const pick = pickClient();
   if ('waitMs' in pick) {
     // Every key is cooling. Wait for the soonest one to recover.
@@ -226,7 +239,16 @@ async function callGemini(
       contents: [{ parts: [{ text: prompt }] }],
       config: { systemInstruction, responseMimeType: 'application/json' },
     });
-    return JSON.parse(response.text || '{}');
+    const u: any = (response as any).usageMetadata || {};
+    return {
+      json: JSON.parse(response.text || '{}'),
+      usage: {
+        model,
+        inputTokens: u.promptTokenCount || 0,
+        outputTokens: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0),
+        totalTokens: u.totalTokenCount || 0,
+      },
+    };
   } catch (error: any) {
     const fastModel = getFastModel();
     if (allowFastFallback && model !== fastModel) {
@@ -254,6 +276,7 @@ export interface TranslateInput {
 export interface TranslateOutput {
   translatedText: string;
   explanation: string;
+  usage?: GeminiUsage;
 }
 
 export interface AnalyzeInput {
@@ -270,7 +293,11 @@ export interface AnalyzeOutput {
   suggestedActivities?: string[];
 }
 
-export async function translate(input: TranslateInput): Promise<TranslateOutput> {
+/**
+ * @param glossaryBlock  Glossary terms and conventions for this request (see glossary.ts), appended to the
+ *                       system instruction. Empty when no glossary is available.
+ */
+export async function translate(input: TranslateInput, glossaryBlock = ''): Promise<TranslateOutput> {
   const { content, grade, subject, contentType, additionalContext, targetLanguage } = input;
   const target = (targetLanguage || 'Hindi').trim();
 
@@ -330,7 +357,7 @@ Provide the response in the following JSON format:
 {
   "translatedText": "The translated content in ${target}, with every math expression wrapped in ${MATH_OPEN} and ${MATH_CLOSE}",
   "explanation": "Briefly note any non-obvious terminology choices: which canonical NCERT/SCERT term was picked, which regional variant, or which transliteration was needed. Optional."
-}`;
+}${glossaryBlock ? '\n\n' + glossaryBlock : ''}`;
 
   let prompt = `Translate the following content into ${target}.`;
   if (grade) prompt += `\nTarget Grade: ${grade}`;
@@ -341,10 +368,11 @@ Provide the response in the following JSON format:
   }
   prompt += `\n\nContent to Translate:\n${content}`;
 
-  const result = await callGemini(systemInstruction, prompt);
+  const { json: result, usage } = await callGemini(systemInstruction, prompt);
   return {
     translatedText: rewriteMathMarkers(result.translatedText || 'Translation failed.'),
     explanation: rewriteMathMarkers(result.explanation || ''),
+    usage,
   };
 }
 
@@ -378,5 +406,6 @@ Return the response in JSON format:
 }
 Note: the JSON key "hindi" is kept as-is for backward compatibility, but its value MUST be the term in ${target}.`;
 
-  return callGemini(systemInstruction, content);
+  const { json } = await callGemini(systemInstruction, content);
+  return json;
 }

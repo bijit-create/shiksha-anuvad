@@ -22,9 +22,25 @@ export interface TranslationRequest {
   targetLanguage?: Language | string;
 }
 
+export interface GlossaryTermUse {
+  en: string;
+  sense: string;
+  target: string;
+  status: 'approved' | 'candidate';
+  found: boolean;
+}
+
+export interface GlossaryReport {
+  version: number;
+  band: '1-5' | '6-10' | '11-12' | null;
+  terms: GlossaryTermUse[];
+  latinNotAllowed: string[];
+}
+
 export interface TranslationResponse {
   translatedText: string;
   explanation?: string;
+  glossary?: GlossaryReport;
 }
 
 export interface ContentAnalysis {
