@@ -3,12 +3,16 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 // Supabase holds the glossary (R2), the conventions (R1/R3) and the sign-in.
 // The publishable key is safe to expose; every read runs as the signed-in user under row-level security.
 
+// Defaults: the ConveGenius project "cg-glossary" (public URL and publishable key; env vars override).
+const DEFAULT_URL = 'https://grimpkecuvybjkpicaoo.supabase.co';
+const DEFAULT_KEY = 'sb_publishable_HWj40vykmAqhPwa4Gdvs2w_0_dZPRCP';
+
 export function supabaseUrl(): string {
-  return (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+  return (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || DEFAULT_URL).trim();
 }
 
 function publishableKey(): string {
-  return (process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || '').trim();
+  return (process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || DEFAULT_KEY).trim();
 }
 
 export function isSupabaseConfigured(): boolean {

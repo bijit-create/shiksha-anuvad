@@ -1,7 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
-const url = (import.meta.env.VITE_SUPABASE_URL as string) || '';
-const key = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string) || '';
+// Defaults are the ConveGenius project "cg-glossary". Both values are public by design (row-level security
+// protects the data); env vars override them for another project.
+const url = (import.meta.env.VITE_SUPABASE_URL as string) || 'https://grimpkecuvybjkpicaoo.supabase.co';
+const key = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string) || 'sb_publishable_HWj40vykmAqhPwa4Gdvs2w_0_dZPRCP';
 
 export const ALLOWED_DOMAIN = ((import.meta.env.VITE_ALLOWED_EMAIL_DOMAIN as string) || 'convegenius.ai').toLowerCase();
 export const supabaseConfigured = !!url && !!key;
