@@ -1,4 +1,4 @@
-import { TranslationRequest, TranslationResponse, ContentAnalysis, GlossaryInfo, GlossaryLookupRow } from "../types";
+import { TranslationRequest, TranslationResponse, GlossaryInfo, GlossaryLookupRow } from "../types";
 import { getAccessToken, signOut } from "./auth";
 
 interface RequestOptions {
@@ -33,13 +33,6 @@ export async function translateContent(
   opts: RequestOptions = {},
 ): Promise<TranslationResponse> {
   return postJSON<TranslationResponse>('/api/translate', request, opts);
-}
-
-export async function analyzeContent(
-  request: TranslationRequest,
-  opts: RequestOptions = {},
-): Promise<ContentAnalysis> {
-  return postJSON<ContentAnalysis>('/api/analyze', request, opts);
 }
 
 async function getJSON<T>(url: string): Promise<T> {

@@ -6,7 +6,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { analyze, getModel, getKeyCount } from './lib/gemini.js';
+import { getModel, getKeyCount } from './lib/gemini.js';
 import { authenticate, allowedDomain } from './lib/auth.js';
 import { isSupabaseConfigured } from './lib/supabase.js';
 import { translateForUser } from './lib/pipeline.js';
@@ -58,21 +58,6 @@ app.post('/api/translate', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[translate] error:', err?.message || err);
     return res.status(500).json({ error: 'Failed to translate content. Please try again.' });
-  }
-});
-
-app.post('/api/analyze', async (req: Request, res: Response) => {
-  if (!(await authenticate(req, res))) return;
-  try {
-    const { content } = req.body || {};
-    if (!content || typeof content !== 'string' || !content.trim()) {
-      return res.status(400).json({ error: 'content is required' });
-    }
-    const result = await analyze(req.body);
-    return res.json(result);
-  } catch (err: any) {
-    console.error('[analyze] error:', err?.message || err);
-    return res.status(500).json({ error: 'Failed to analyze content.' });
   }
 });
 

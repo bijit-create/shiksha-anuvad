@@ -10,10 +10,6 @@ import {
   RotateCcw,
   Loader2,
   AlertCircle,
-  Sparkles,
-  Lightbulb,
-  BrainCircuit,
-  ListChecks,
   FileSpreadsheet,
   Sigma,
   ChevronDown,
@@ -25,8 +21,8 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { GradeLevel, Subject, Language, ContentAnalysis, GlossaryReport } from '../types';
-import { translateContent, analyzeContent } from '../services/geminiService';
+import { GradeLevel, Subject, Language, GlossaryReport } from '../types';
+import { translateContent } from '../services/geminiService';
 import BatchExcelWizard from './BatchExcelWizard';
 import GlossaryPanel from './GlossaryPanel';
 
@@ -87,11 +83,8 @@ export default function Translator() {
   const targetLangNative = LANGUAGES.find(l => l.code === targetLanguage)?.native || targetLanguage;
   
   const [output, setOutput] = useState('');
-  const [explanation, setExplanation] = useState('');
   const [glossary, setGlossary] = useState<GlossaryReport | null>(null);
-  const [analysis, setAnalysis] = useState<ContentAnalysis | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -115,36 +108,11 @@ export default function Translator() {
         targetLanguage,
       });
       setOutput(result.translatedText);
-      setExplanation(result.explanation || '');
       setGlossary(result.glossary || null);
-
-      // Automatically trigger analysis for longer content
-      if (input.length > 50) {
-        handleAnalyze();
-      }
     } catch (err: any) {
       setError(err.message || 'An unexpected error occurred');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleAnalyze = async () => {
-    if (!input.trim()) return;
-    setIsAnalyzing(true);
-    try {
-      const result = await analyzeContent({
-        content: input,
-        grade,
-        subject,
-        contentType,
-        targetLanguage,
-      });
-      setAnalysis(result);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsAnalyzing(false);
     }
   };
 
@@ -157,9 +125,7 @@ export default function Translator() {
   const reset = () => {
     setInput('');
     setOutput('');
-    setExplanation('');
     setGlossary(null);
-    setAnalysis(null);
     setError(null);
   };
 
@@ -173,12 +139,8 @@ export default function Translator() {
             Shiksha Anuvad
           </h1>
           <p className="text-zinc-500 mt-1">
-            Contextual NCERT-aligned English → <span className="font-semibold text-zinc-700">{targetLanguage}</span> <span className="text-zinc-400">({targetLangNative})</span> Translator
+            English → <span className="font-semibold text-zinc-700">{targetLanguage}</span> <span className="text-zinc-400">({targetLangNative})</span>
           </p>
-        </div>
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-zinc-400">
-          <span className="px-2 py-1 bg-zinc-100 rounded">v1.0</span>
-          <span className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded">AI Powered</span>
         </div>
       </header>
 
@@ -276,15 +238,6 @@ export default function Translator() {
                 <Sigma className="w-3.5 h-3.5" />
                 Math Format
                 <ChevronDown className={cn("w-3 h-3 transition-transform", showLatexGuide && "rotate-180")} />
-              </button>
-               <button
-                onClick={handleAnalyze}
-                disabled={isAnalyzing || !input.trim()}
-                className="text-indigo-600 hover:text-indigo-700 disabled:text-zinc-300 transition-colors flex items-center gap-1 text-xs font-bold uppercase tracking-wider"
-                title="Smart Analysis"
-              >
-                {isAnalyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                Analyze
               </button>
               <button
                 onClick={reset}
@@ -391,7 +344,7 @@ export default function Translator() {
             ) : (
               <>
                 <Send className="w-5 h-5" />
-                Translate to Hindi
+                Translate to {targetLanguage}
               </>
             )}
           </button>
@@ -480,93 +433,11 @@ export default function Translator() {
               <p className="text-[11px] text-indigo-400">* from the NCERT textbook, not yet reviewed. ✗ = glossary term not found in the output.</p>
             </div>
           )}
-
-          {/* Explanation / Insights */}
-          {explanation && !isLoading && (
-            <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 space-y-2">
-              <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider flex items-center gap-2">
-                <AlertCircle className="w-3.5 h-3.5" /> Translation Insights
-              </h3>
-              <p className="text-sm text-amber-800 leading-relaxed italic">
-                {explanation}
-              </p>
-            </div>
-          )}
         </div>
       </div>
       ) : (
         <BatchExcelWizard grade={grade} subject={subject} />
       )}
-
-
-      {/* Smart Analysis Section */}
-      {mode === 'text' && analysis && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="bg-white p-5 rounded-2xl border border-zinc-100 shadow-sm space-y-3">
-            <h3 className="text-xs font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-2">
-              <BrainCircuit className="w-4 h-4" /> Key Concepts
-            </h3>
-            <ul className="space-y-2">
-              {analysis.keyConcepts.map((concept, i) => (
-                <li key={i} className="text-sm text-zinc-600 flex items-start gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 shrink-0" />
-                  {concept}
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border border-zinc-100 shadow-sm space-y-3 lg:col-span-2">
-            <h3 className="text-xs font-bold text-emerald-600 uppercase tracking-widest flex items-center gap-2">
-              <ListChecks className="w-4 h-4" /> Vocabulary Focus
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {analysis.vocabulary.map((vocab, i) => (
-                <div key={i} className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-100/50">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-bold text-zinc-800">{vocab.english}</span>
-                    <span className="text-sm font-hindi font-bold text-emerald-700">{vocab.hindi}</span>
-                  </div>
-                  <p className="text-[11px] text-zinc-500 leading-tight">{vocab.definition}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-2xl border border-zinc-100 shadow-sm space-y-3">
-            <h3 className="text-xs font-bold text-amber-600 uppercase tracking-widest flex items-center gap-2">
-              <Lightbulb className="w-4 h-4" /> NCERT Alignment
-            </h3>
-            <p className="text-sm text-zinc-600 leading-relaxed">
-              {analysis.ncertAlignment}
-            </p>
-            {analysis.suggestedActivities && analysis.suggestedActivities.length > 0 && (
-              <div className="pt-2 border-t border-zinc-50">
-                <span className="text-[10px] font-bold text-zinc-400 uppercase">Activity Idea:</span>
-                <p className="text-xs text-zinc-500 mt-1 italic">{analysis.suggestedActivities[0]}</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Footer Info */}
-      <footer className="pt-8 border-t border-zinc-200">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="space-y-2">
-            <h4 className="text-xs font-bold text-zinc-500 uppercase">Contextual Accuracy</h4>
-            <p className="text-xs text-zinc-400">Our AI model prioritizes pedagogical intent over literal translation, ensuring concepts are explained as they would be in a native Hindi classroom.</p>
-          </div>
-          <div className="space-y-2">
-            <h4 className="text-xs font-bold text-zinc-500 uppercase">NCERT Standards</h4>
-            <p className="text-xs text-zinc-400">Vocabulary is cross-referenced with NCERT Hindi medium textbooks to ensure students are familiar with the academic terms used.</p>
-          </div>
-          <div className="space-y-2">
-            <h4 className="text-xs font-bold text-zinc-500 uppercase">Grade Adaptation</h4>
-            <p className="text-xs text-zinc-400">Complexity scales dynamically from Grade 1 to 12, adjusting sentence structure and terminology density accordingly.</p>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

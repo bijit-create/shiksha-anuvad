@@ -43,13 +43,6 @@ export interface TranslationResponse {
   glossary?: GlossaryReport;
 }
 
-export interface ContentAnalysis {
-  keyConcepts: string[];
-  vocabulary: { english: string; hindi: string; definition: string }[];
-  ncertAlignment: string;
-  suggestedActivities?: string[];
-}
-
 export interface GlossaryInfo {
   version: number;
   updatedAt: string | null;
