@@ -1,6 +1,6 @@
 import { useState, FormEvent } from 'react';
-import { Lock, Loader2, AlertCircle, Mail, CheckCircle2 } from 'lucide-react';
-import { signInWithGoogle, sendEmailLink } from '../services/auth';
+import { Lock, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { sendEmailLink } from '../services/auth';
 import { ALLOWED_DOMAIN, supabaseConfigured } from '../lib/supabase';
 
 interface Props {
@@ -11,22 +11,11 @@ export default function AuthGate({ notice }: Props) {
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(notice || null);
   const [sent, setSent] = useState(false);
-  const [loading, setLoading] = useState<'google' | 'email' | null>(null);
-
-  const google = async () => {
-    setLoading('google');
-    setError(null);
-    try {
-      await signInWithGoogle();
-    } catch (err: any) {
-      setError(err?.message || 'Google sign-in failed.');
-      setLoading(null);
-    }
-  };
+  const [loading, setLoading] = useState(false);
 
   const emailLink = async (e: FormEvent) => {
     e.preventDefault();
-    setLoading('email');
+    setLoading(true);
     setError(null);
     try {
       await sendEmailLink(email);
@@ -34,7 +23,7 @@ export default function AuthGate({ notice }: Props) {
     } catch (err: any) {
       setError(err?.message || 'Could not send the sign-in link.');
     } finally {
-      setLoading(null);
+      setLoading(false);
     }
   };
 
@@ -47,7 +36,7 @@ export default function AuthGate({ notice }: Props) {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-zinc-900 tracking-tight">Shiksha Anuvad</h1>
-            <p className="text-sm text-zinc-500 mt-1">Sign in with your {ALLOWED_DOMAIN} account.</p>
+            <p className="text-sm text-zinc-500 mt-1">Enter your {ALLOWED_DOMAIN} email. We'll send you a sign-in link.</p>
           </div>
         </div>
 
@@ -57,19 +46,6 @@ export default function AuthGate({ notice }: Props) {
           </div>
         )}
 
-        <button
-          onClick={google}
-          disabled={!!loading || !supabaseConfigured}
-          className="w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 bg-indigo-600 text-white hover:bg-indigo-700 active:scale-[0.98] transition-all disabled:bg-zinc-100 disabled:text-zinc-400"
-        >
-          {loading === 'google' && <Loader2 className="w-4 h-4 animate-spin" />}
-          Sign in with Google
-        </button>
-
-        <div className="flex items-center gap-3 text-[11px] text-zinc-400 uppercase tracking-wider">
-          <div className="h-px flex-1 bg-zinc-200" /> or <div className="h-px flex-1 bg-zinc-200" />
-        </div>
-
         {sent ? (
           <div className="flex items-start gap-2 p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-sm text-emerald-800">
             <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
@@ -77,9 +53,6 @@ export default function AuthGate({ notice }: Props) {
           </div>
         ) : (
           <form onSubmit={emailLink} className="space-y-3">
-            <label htmlFor="email" className="text-xs font-semibold text-zinc-600 uppercase tracking-wider flex items-center gap-2">
-              <Mail className="w-3.5 h-3.5" /> Email link
-            </label>
             <input
               id="email"
               type="email"
@@ -87,15 +60,16 @@ export default function AuthGate({ notice }: Props) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder={`name@${ALLOWED_DOMAIN}`}
-              disabled={!!loading || !supabaseConfigured}
+              disabled={loading || !supabaseConfigured}
+              aria-label="Email"
               className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-400 outline-none transition-all disabled:opacity-60"
             />
             <button
               type="submit"
-              disabled={!!loading || !email.trim() || !supabaseConfigured}
-              className="w-full py-2.5 rounded-xl font-semibold text-sm border border-zinc-200 text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 flex items-center justify-center gap-2"
+              disabled={loading || !email.trim() || !supabaseConfigured}
+              className="w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 bg-indigo-600 text-white hover:bg-indigo-700 active:scale-[0.98] transition-all disabled:bg-zinc-100 disabled:text-zinc-400"
             >
-              {loading === 'email' && <Loader2 className="w-4 h-4 animate-spin" />}
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
               Send me a link
             </button>
           </form>
