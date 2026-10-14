@@ -170,12 +170,8 @@ export default function Translator() {
             Shiksha Anuvad
           </h1>
           <p className="text-zinc-500 mt-1">
-            Contextual NCERT-aligned English → <span className="font-semibold text-zinc-700">{targetLanguage}</span> <span className="text-zinc-400">({targetLangNative})</span> Translator
+            English → <span className="font-semibold text-zinc-700">{targetLanguage}</span> <span className="text-zinc-400">({targetLangNative})</span>
           </p>
-        </div>
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-zinc-400">
-          <span className="px-2 py-1 bg-zinc-100 rounded">v1.0</span>
-          <span className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded">AI Powered</span>
         </div>
       </header>
 
@@ -536,23 +532,6 @@ export default function Translator() {
         </div>
       )}
 
-      {/* Footer Info */}
-      <footer className="pt-8 border-t border-zinc-200">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="space-y-2">
-            <h4 className="text-xs font-bold text-zinc-500 uppercase">Contextual Accuracy</h4>
-            <p className="text-xs text-zinc-400">Our AI model prioritizes pedagogical intent over literal translation, ensuring concepts are explained as they would be in a native Hindi classroom.</p>
-          </div>
-          <div className="space-y-2">
-            <h4 className="text-xs font-bold text-zinc-500 uppercase">NCERT Standards</h4>
-            <p className="text-xs text-zinc-400">Vocabulary is cross-referenced with NCERT Hindi medium textbooks to ensure students are familiar with the academic terms used.</p>
-          </div>
-          <div className="space-y-2">
-            <h4 className="text-xs font-bold text-zinc-500 uppercase">Grade Adaptation</h4>
-            <p className="text-xs text-zinc-400">Complexity scales dynamically from Grade 1 to 12, adjusting sentence structure and terminology density accordingly.</p>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }
