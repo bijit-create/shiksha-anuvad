@@ -87,7 +87,6 @@ export default function Translator() {
   const targetLangNative = LANGUAGES.find(l => l.code === targetLanguage)?.native || targetLanguage;
   
   const [output, setOutput] = useState('');
-  const [explanation, setExplanation] = useState('');
   const [glossary, setGlossary] = useState<GlossaryReport | null>(null);
   const [analysis, setAnalysis] = useState<ContentAnalysis | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -115,7 +114,6 @@ export default function Translator() {
         targetLanguage,
       });
       setOutput(result.translatedText);
-      setExplanation(result.explanation || '');
       setGlossary(result.glossary || null);
 
       // Automatically trigger analysis for longer content
@@ -157,7 +155,6 @@ export default function Translator() {
   const reset = () => {
     setInput('');
     setOutput('');
-    setExplanation('');
     setGlossary(null);
     setAnalysis(null);
     setError(null);
@@ -391,7 +388,7 @@ export default function Translator() {
             ) : (
               <>
                 <Send className="w-5 h-5" />
-                Translate to Hindi
+                Translate to {targetLanguage}
               </>
             )}
           </button>
@@ -481,17 +478,6 @@ export default function Translator() {
             </div>
           )}
 
-          {/* Explanation / Insights */}
-          {explanation && !isLoading && (
-            <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 space-y-2">
-              <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider flex items-center gap-2">
-                <AlertCircle className="w-3.5 h-3.5" /> Translation Insights
-              </h3>
-              <p className="text-sm text-amber-800 leading-relaxed italic">
-                {explanation}
-              </p>
-            </div>
-          )}
         </div>
       </div>
       ) : (
