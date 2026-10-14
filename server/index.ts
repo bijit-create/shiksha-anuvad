@@ -10,6 +10,7 @@ import { analyze, getModel, getKeyCount } from './lib/gemini.js';
 import { authenticate, allowedDomain } from './lib/auth.js';
 import { isSupabaseConfigured } from './lib/supabase.js';
 import { translateForUser } from './lib/pipeline.js';
+import { glossaryInfo, lookupTerm } from './lib/glossaryLookup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -72,6 +73,19 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[analyze] error:', err?.message || err);
     return res.status(500).json({ error: 'Failed to analyze content.' });
+  }
+});
+
+app.get('/api/glossary', async (req: Request, res: Response) => {
+  const user = await authenticate(req, res);
+  if (!user) return;
+  const language = String(req.query.language || 'Hindi');
+  const q = typeof req.query.q === 'string' ? req.query.q : '';
+  try {
+    return res.json(q ? { terms: await lookupTerm(user, language, q) } : await glossaryInfo(user, language));
+  } catch (err: any) {
+    console.error('[glossary] error:', err?.message || err);
+    return res.status(500).json({ error: 'Could not read the glossary.' });
   }
 });
 
