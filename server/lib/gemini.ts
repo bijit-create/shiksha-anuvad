@@ -279,20 +279,6 @@ export interface TranslateOutput {
   usage?: GeminiUsage;
 }
 
-export interface AnalyzeInput {
-  content: string;
-  grade?: string;
-  subject?: string;
-  targetLanguage?: string;
-}
-
-export interface AnalyzeOutput {
-  keyConcepts?: string[];
-  vocabulary?: { english: string; hindi: string; definition: string }[];
-  ncertAlignment?: string;
-  suggestedActivities?: string[];
-}
-
 /**
  * @param glossaryBlock  Glossary terms and conventions for this request (see glossary.ts), appended to the
  *                       system instruction. Empty when no glossary is available.
@@ -374,38 +360,4 @@ Provide the response in the following JSON format:
     explanation: rewriteMathMarkers(result.explanation || ''),
     usage,
   };
-}
-
-export async function analyze(input: AnalyzeInput): Promise<AnalyzeOutput> {
-  const { content, grade, subject, targetLanguage } = input;
-  const target = (targetLanguage || 'Hindi').trim();
-
-  const systemInstruction = `You are an educational consultant specializing in the NCERT curriculum and Indian-language pedagogy.
-Analyze the provided educational content for ${grade || 'the given grade'} ${subject || ''}.
-
-Before answering, internally consult:
-- NEP 2020 (especially §4.11–§4.22) and NCF-SE 2023 for age- and language-appropriate framing.
-- NCERT and state SCERT ${target}-medium textbooks for canonical subject terminology.
-- Authoritative ${target} academic bodies:
-${authoritiesBlock(target)}
-
-Then produce:
-1. Key Concepts: 3-5 core concepts covered (short plain-text phrases, in English).
-2. Vocabulary: 3-5 important terms. For each, give the English word, the canonical equivalent in ${target} (in its native script — taken from the sources above, not transliterated), and a one-line definition in English.
-3. NCERT Alignment: how this aligns with NCERT standards for this grade.
-4. Suggested Activities: 1-2 classroom activities related to this content.
-
-Keep these analysis fields as plain text (no LaTeX markers, no markdown). Return JSON only.
-
-Return the response in JSON format:
-{
-  "keyConcepts": ["concept1", "concept2"],
-  "vocabulary": [{"english": "word", "hindi": "term in ${target} script", "definition": "meaning"}],
-  "ncertAlignment": "alignment note",
-  "suggestedActivities": ["activity1"]
-}
-Note: the JSON key "hindi" is kept as-is for backward compatibility, but its value MUST be the term in ${target}.`;
-
-  const { json } = await callGemini(systemInstruction, content);
-  return json;
 }
