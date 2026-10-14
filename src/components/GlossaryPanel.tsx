@@ -3,7 +3,7 @@ import { BookOpen, Search, Loader2, X } from 'lucide-react';
 import type { GlossaryInfo, GlossaryLookupRow } from '../types';
 import { glossaryInfo, lookupGlossary } from '../services/geminiService';
 
-// The glossary the translator is using right now: version, last update, size, and a term lookup.
+// The glossary the translator is using right now: version, last update, and a term lookup.
 // Pipeline syncs bump the version; the server picks a new version up within 60 s, and so does this panel.
 
 function ago(iso: string | null): string {
@@ -59,8 +59,7 @@ export default function GlossaryPanel({ language }: { language: string }) {
           <span className="font-semibold text-zinc-800">ConveGenius glossary</span>
           {info ? (
             <span className="text-xs text-zinc-500 truncate">
-              v{info.version} · updated {ago(info.updatedAt)} · {language}: {info.approved.toLocaleString()} approved,{' '}
-              {info.candidate.toLocaleString()} from NCERT textbooks (not yet reviewed)
+              v{info.version} · updated {ago(info.updatedAt)}
             </span>
           ) : infoError ? (
             <span className="text-xs text-red-600">Glossary unavailable: {infoError}</span>

@@ -54,8 +54,6 @@ export interface GlossaryInfo {
   version: number;
   updatedAt: string | null;
   language: string;
-  approved: number;
-  candidate: number;
 }
 
 export interface GlossaryLookupRow {

@@ -4,7 +4,7 @@ import { glossaryInfo, lookupTerm } from '../server/lib/glossaryLookup.js';
 
 export const config = { maxDuration: 15 };
 
-// GET /api/glossary?language=Hindi            → version, last update, term counts
+// GET /api/glossary?language=Hindi            → version and last update
 // GET /api/glossary?language=Hindi&q=altitude → matching terms
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });

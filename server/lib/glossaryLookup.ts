@@ -1,15 +1,13 @@
 import { AuthUser } from './auth.js';
 import { userClient } from './supabase.js';
 
-// What the glossary panel shows: version, last update, term counts, and a term lookup.
+// What the glossary panel shows: version, last update, and a term lookup.
 // Reads the database as the signed-in user, so it shows what translation would use right now.
 
 export interface GlossaryInfo {
   version: number;
   updatedAt: string | null;
   language: string;
-  approved: number;
-  candidate: number;
 }
 
 export interface LookupRow {
@@ -24,22 +22,12 @@ export interface LookupRow {
 }
 
 export async function glossaryInfo(user: AuthUser, language: string): Promise<GlossaryInfo> {
-  const db = userClient(user.token);
-  const count = (status: string) =>
-    db.from('glossary_translation').select('id', { count: 'exact', head: true })
-      .eq('language', language).eq('status', status);
-  const [meta, approved, candidate] = await Promise.all([
-    db.from('glossary_meta').select('version, updated_at').single(),
-    count('approved'),
-    count('candidate'),
-  ]);
+  const meta = await userClient(user.token).from('glossary_meta').select('version, updated_at').single();
   if (meta.error) throw meta.error;
   return {
     version: Number(meta.data?.version ?? -1),
     updatedAt: meta.data?.updated_at ?? null,
     language,
-    approved: approved.count ?? 0,
-    candidate: candidate.count ?? 0,
   };
 }
 
