@@ -6,8 +6,10 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { translate, analyze, getModel, getKeyCount } from './lib/gemini.js';
-import { checkAccess, getExpectedToken, ACCESS_TOKEN_HEADER } from './lib/auth.js';
+import { analyze, getModel, getKeyCount } from './lib/gemini.js';
+import { authenticate, allowedDomain } from './lib/auth.js';
+import { isSupabaseConfigured } from './lib/supabase.js';
+import { translateForUser } from './lib/pipeline.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,28 +33,26 @@ console.log(`[shiksha-anuvad] ${getKeyCount()} Gemini key(s) configured`);
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 
-app.get('/api/health', (req: Request, res: Response) => {
-  const expected = getExpectedToken();
-  const authRequired = expected !== null;
-  const provided = (req.headers[ACCESS_TOKEN_HEADER] || '').toString().trim();
-  const authenticated = !authRequired || provided === expected;
+app.get('/api/health', (_req: Request, res: Response) => {
   res.json({
     ok: true,
     model: getModel(),
     apiKeyCount: getKeyCount(),
-    authRequired,
-    authenticated,
+    auth: 'supabase',
+    allowedDomain: allowedDomain(),
+    supabaseConfigured: isSupabaseConfigured(),
   });
 });
 
 app.post('/api/translate', async (req: Request, res: Response) => {
-  if (!checkAccess(req, res)) return;
+  const user = await authenticate(req, res);
+  if (!user) return;
   try {
     const { content } = req.body || {};
     if (!content || typeof content !== 'string' || !content.trim()) {
       return res.status(400).json({ error: 'content is required' });
     }
-    const result = await translate(req.body);
+    const result = await translateForUser(user, req.body);
     return res.json(result);
   } catch (err: any) {
     console.error('[translate] error:', err?.message || err);
@@ -61,7 +61,7 @@ app.post('/api/translate', async (req: Request, res: Response) => {
 });
 
 app.post('/api/analyze', async (req: Request, res: Response) => {
-  if (!checkAccess(req, res)) return;
+  if (!(await authenticate(req, res))) return;
   try {
     const { content } = req.body || {};
     if (!content || typeof content !== 'string' || !content.trim()) {

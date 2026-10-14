@@ -1,44 +1,32 @@
-const TOKEN_KEY = 'shiksha-anuvad.access-token';
+import { supabase, ALLOWED_DOMAIN, isAllowedEmail } from '../lib/supabase';
 
-export function getStoredToken(): string {
-  try {
-    return localStorage.getItem(TOKEN_KEY) || '';
-  } catch {
-    return '';
-  }
+/** Access token of the signed-in user, refreshed by the Supabase client when needed. */
+export async function getAccessToken(): Promise<string> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token || '';
 }
 
-export function storeToken(token: string): void {
-  try {
-    localStorage.setItem(TOKEN_KEY, token);
-  } catch {
-    // localStorage unavailable (private mode, etc.) — fall through silently
-  }
-}
-
-export function clearToken(): void {
-  try {
-    localStorage.removeItem(TOKEN_KEY);
-  } catch {}
-}
-
-export interface AuthStatus {
-  authRequired: boolean;
-  authenticated: boolean;
-  model?: string;
-}
-
-export async function fetchAuthStatus(token: string): Promise<AuthStatus> {
-  const response = await fetch('/api/health', {
-    headers: token ? { 'x-access-token': token } : {},
+export async function signInWithGoogle(): Promise<void> {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: window.location.origin,
+      // Offers only accounts on the organisation's Google Workspace; the server and the database enforce it too.
+      queryParams: { hd: ALLOWED_DOMAIN, prompt: 'select_account' },
+    },
   });
-  if (!response.ok) {
-    throw new Error(`Health check failed (${response.status})`);
-  }
-  const data = await response.json();
-  return {
-    authRequired: !!data.authRequired,
-    authenticated: !!data.authenticated,
-    model: data.model,
-  };
+  if (error) throw error;
+}
+
+export async function sendEmailLink(email: string): Promise<void> {
+  if (!isAllowedEmail(email)) throw new Error(`Use your ${ALLOWED_DOMAIN} email address.`);
+  const { error } = await supabase.auth.signInWithOtp({
+    email: email.trim(),
+    options: { emailRedirectTo: window.location.origin },
+  });
+  if (error) throw error;
+}
+
+export async function signOut(): Promise<void> {
+  await supabase.auth.signOut();
 }

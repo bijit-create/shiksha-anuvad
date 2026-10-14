@@ -1,44 +1,48 @@
 import { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import type { Session } from '@supabase/supabase-js';
+import { Loader2, LogOut } from 'lucide-react';
 import Translator from './components/Translator';
 import AuthGate from './components/AuthGate';
-import { fetchAuthStatus, getStoredToken } from './services/auth';
-
-type AuthState =
-  | { kind: 'checking' }
-  | { kind: 'gate' }
-  | { kind: 'ready' };
+import { supabase, isAllowedEmail, ALLOWED_DOMAIN } from './lib/supabase';
+import { signOut } from './services/auth';
 
 export default function App() {
-  const [state, setState] = useState<AuthState>({ kind: 'checking' });
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchAuthStatus(getStoredToken())
-      .then((status) => {
-        if (!status.authRequired || status.authenticated) {
-          setState({ kind: 'ready' });
-        } else {
-          setState({ kind: 'gate' });
-        }
-      })
-      .catch(() => {
-        // Health check failed (network / backend down). Let the app load;
-        // actual API calls will surface the real error.
-        setState({ kind: 'ready' });
-      });
+    const accept = (s: Session | null) => {
+      if (s && !isAllowedEmail(s.user.email)) {
+        setNotice(`${s.user.email} is not a ${ALLOWED_DOMAIN} account.`);
+        signOut();
+        setSession(null);
+        return;
+      }
+      setSession(s);
+    };
+    supabase.auth.getSession().then(({ data }) => accept(data.session));
+    const { data } = supabase.auth.onAuthStateChange((_event, s) => accept(s));
+    return () => data.subscription.unsubscribe();
   }, []);
+
+  if (session === undefined) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-50">
+        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+      </div>
+    );
+  }
+  if (!session) return <AuthGate notice={notice} />;
 
   return (
     <div className="min-h-screen bg-zinc-50">
-      {state.kind === 'checking' && (
-        <div className="min-h-screen flex items-center justify-center">
-          <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-        </div>
-      )}
-      {state.kind === 'gate' && (
-        <AuthGate onUnlock={() => setState({ kind: 'ready' })} />
-      )}
-      {state.kind === 'ready' && <Translator />}
+      <div className="flex justify-end items-center gap-3 px-6 pt-4 text-xs text-zinc-500">
+        <span>{session.user.email}</span>
+        <button onClick={() => signOut()} className="flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-700">
+          <LogOut className="w-3.5 h-3.5" /> Sign out
+        </button>
+      </div>
+      <Translator />
     </div>
   );
 }

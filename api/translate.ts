@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { translate } from '../server/lib/gemini.js';
-import { checkAccess } from '../server/lib/auth.js';
+import { translateForUser } from '../server/lib/pipeline.js';
+import { authenticate } from '../server/lib/auth.js';
 
 export const config = { maxDuration: 300 };
 
@@ -8,7 +8,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
-  if (!checkAccess(req, res)) return;
+  const user = await authenticate(req, res);
+  if (!user) return;
 
   try {
     const { content } = req.body || {};
@@ -16,7 +17,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'content is required' });
     }
 
-    const result = await translate(req.body);
+    const result = await translateForUser(user, req.body);
     return res.status(200).json(result);
   } catch (err: any) {
     const message = err?.message || String(err);
