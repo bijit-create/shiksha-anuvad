@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { userClient } from './supabase.js';
+import { anonClient, userClient } from './supabase.js';
 
 // Glossary-locked translation.
 // The glossary (R2) and conventions (R1 Latin tokens, R3 house style) live in Supabase. Each server instance keeps
@@ -133,6 +133,11 @@ async function loadLanguage(client: SupabaseClient, language: string, version: n
     ),
   ]);
 
+  return buildGlossary(language, version, rows, conv);
+}
+
+/** In-memory index from glossary_translation rows (with their term) and convention rows. */
+export function buildGlossary(language: string, version: number, rows: any[], conv: any[]): LanguageGlossary {
   const index = new Map<string, GlossaryEntry[]>();
   let maxWords = 1;
   for (const r of rows || []) {
@@ -168,6 +173,13 @@ async function loadLanguage(client: SupabaseClient, language: string, version: n
   }));
 
   return { language, version, checkedAt: Date.now(), index, maxWords, conventions, size: (rows || []).length };
+}
+
+/** For scripts without a user session: the same glossary through the loader-token export RPC. */
+export async function getGlossaryForScript(loaderToken: string, language: string): Promise<LanguageGlossary> {
+  const { data, error } = await anonClient().rpc('export_glossary', { p_token: loaderToken, p_language: language });
+  if (error) throw error;
+  return buildGlossary(language, Number(data.version), data.rows || [], data.conventions || []);
 }
 
 /** The glossary for one language, refreshed when glossary_meta.version changes. Null if unavailable. */
