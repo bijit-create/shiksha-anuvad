@@ -28,6 +28,7 @@ import { twMerge } from 'tailwind-merge';
 import { GradeLevel, Subject, Language, ContentAnalysis, GlossaryReport } from '../types';
 import { translateContent, analyzeContent } from '../services/geminiService';
 import BatchExcelWizard from './BatchExcelWizard';
+import GlossaryPanel from './GlossaryPanel';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -180,6 +181,8 @@ export default function Translator() {
           <span className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded">AI Powered</span>
         </div>
       </header>
+
+      <GlossaryPanel language={targetLanguage} />
 
       {/* Controls */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 bg-white p-4 rounded-2xl shadow-sm border border-zinc-100">

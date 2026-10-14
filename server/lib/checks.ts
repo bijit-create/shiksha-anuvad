@@ -68,7 +68,8 @@ export function checkItem(
   if (k >= 0 && tgt.options[k] !== undefined && norm(tgt.options[k]) !== norm(tgt.answer)) {
     f.push({ test: 'E3', field: 'key', problem: `In English the key is option ${k + 1}. The key must be exactly the translated option ${k + 1}: "${tgt.options[k]}".` });
   }
-  const glossary = checkOutput(tf.map(([, t]) => stripImages(t)).join('\n'), matches, allowedLatin, version, band);
+  // "$" separates answer parts here; checkOutput would read a pair of them as inline maths.
+  const glossary = checkOutput(tf.map(([, t]) => stripImages(t).replace(/\$/g, ' ')).join('\n'), matches, allowedLatin, version, band);
   f.push(...termFindings(glossary));
   return { findings: f, glossary };
 }
@@ -91,7 +92,14 @@ export function checkText(
 function termFindings(g: GlossaryReport): Finding[] {
   const out: Finding[] = [];
   for (const t of g.terms) {
-    if (!t.found) out.push({ test: 'E6', field: 'any', problem: `"${t.en}"${t.sense ? ` (${t.sense})` : ''} must be rendered as "${t.target}" (inflected as needed).` });
+    if (t.found) continue;
+    const en = `"${t.en}"${t.sense ? ` (${t.sense})` : ''}`;
+    out.push({
+      test: 'E6', field: 'any',
+      problem: t.status === 'approved'
+        ? `${en} must be rendered as "${t.target}" (inflected as needed).`
+        : `The glossary gives "${t.target}" for ${en}. Use it (inflected as needed) unless that sense plainly does not fit here.`,
+    });
   }
   if (g.latinNotAllowed.length) {
     out.push({ test: 'E8', field: 'any', problem: `English left in Latin script: ${g.latinNotAllowed.join(', ')}. Write these in the target script (or drop an English gloss in brackets).` });

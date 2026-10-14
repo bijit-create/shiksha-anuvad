@@ -49,3 +49,22 @@ export interface ContentAnalysis {
   ncertAlignment: string;
   suggestedActivities?: string[];
 }
+
+export interface GlossaryInfo {
+  version: number;
+  updatedAt: string | null;
+  language: string;
+  approved: number;
+  candidate: number;
+}
+
+export interface GlossaryLookupRow {
+  en: string;
+  sense: string;
+  kind: string;
+  gradeMin: number | null;
+  gradeMax: number | null;
+  target: string;
+  variants: string[];
+  status: 'approved' | 'candidate';
+}

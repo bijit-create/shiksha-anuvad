@@ -178,7 +178,7 @@ const LANGUAGE_AUTHORITIES: Record<string, string[]> = {
   ],
 };
 
-function authoritiesBlock(target: string): string {
+export function authoritiesBlock(target: string): string {
   const list = LANGUAGE_AUTHORITIES[target];
   if (!list || list.length === 0) {
     return `   - Use the authoritative ${target} academic-translation tradition (state SCERT textbooks, Sahitya Akademi, and recognised language academies).`;
@@ -215,7 +215,7 @@ export interface GeminiResult<T = any> {
   usage: GeminiUsage;
 }
 
-async function callGemini(
+export async function callGemini(
   systemInstruction: string,
   prompt: string,
   retriesLeft = 6,
