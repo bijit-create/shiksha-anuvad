@@ -297,6 +297,7 @@ export function buildGlossaryBlock(
   if (matches.length) {
     lines.push(`A. TERMS IN THIS SOURCE. Use the given ${target} term for each. Inflect it as the grammar needs (plural, oblique case), but never replace it with another word.`);
     lines.push(`   REQUIRED = approved by Content Governance. PREFERRED = printed in the NCERT ${target} textbook, not yet reviewed: use it unless it plainly does not fit the sense.`);
+    lines.push(`   Each entry holds for the sense in brackets only. Read how the source uses the word: if it is used in a sense the entry does not list (e.g. "Sun" the star, where the glossary only gives "sun" short for Sunday), the entry does not apply; translate that word normally.`);
     for (const m of matches) {
       // Options with the same sense are alternative forms printed in different chapters: show one line.
       const bySense = new Map<string, GlossaryEntry[]>();
