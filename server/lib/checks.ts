@@ -97,7 +97,7 @@ function termFindings(g: GlossaryReport): Finding[] {
     out.push({
       test: 'E6', field: 'any',
       problem: t.status === 'approved'
-        ? `${en} must be rendered as "${t.target}" (inflected as needed).`
+        ? `${en} must be rendered as "${t.target}" (inflected as needed) wherever the source uses it in that sense; leave it if the source means something else.`
         : `The glossary gives "${t.target}" for ${en}. Use it (inflected as needed) unless that sense plainly does not fit here.`,
     });
   }
