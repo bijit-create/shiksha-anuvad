@@ -341,6 +341,17 @@ export function buildGlossaryBlock(
 
 // ---------- after translation ----------
 
+function containsPunjabiInflection(text: string, form: string): boolean {
+  if (!form.includes('ਾ')) return false;
+  // Regular Gurmukhi forms ending in -ā can take -e or -iā̃, e.g. ਪਾਸਾ → ਪਾਸੇ / ਪਾਸਿਆਂ.
+  const escaped = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const inflected = escaped.replace(/([ਕ-ਹਖ਼-ੜਫ਼])ਾ(?=\s|$)/g, '$1(?:ਾ|ੇ|ਿਆਂ)');
+  if (inflected === escaped) return false;
+
+  // Count a generated form only as a whole word or phrase, including around combining marks.
+  return new RegExp(`(?<![\\p{L}\\p{M}\\p{N}\\u200C\\u200D])${inflected}(?![\\p{L}\\p{M}\\p{N}\\u200C\\u200D])`, 'u').test(text);
+}
+
 export function checkOutput(
   translated: string,
   matches: TermMatch[],
@@ -350,8 +361,10 @@ export function checkOutput(
 ): GlossaryReport {
   const text = nfc(translated || '');
   const terms = matches.map(m => {
-    const hit = m.options.find(o => [o.target, ...o.variants].some(f => f && text.includes(f)));
-    const o = hit || m.options[0];
+    const options = m.options.map(entry => ({ entry, forms: [entry.target, ...entry.variants].map(nfc) }));
+    const hit = options.find(({ forms }) => forms.some(form => form && text.includes(form)))
+      ?? options.find(({ forms }) => forms.some(form => containsPunjabiInflection(text, form)));
+    const o = hit?.entry ?? m.options[0];
     return { en: o.en, sense: o.sense, target: o.target, status: o.status, found: !!hit };
   });
 
