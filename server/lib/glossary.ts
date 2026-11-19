@@ -50,7 +50,7 @@ export interface TermMatch {
 export interface GlossaryReport {
   version: number;
   band: Band | null;
-  terms: { en: string; sense: string; target: string; status: Status; found: boolean }[];
+  terms: { en: string; sense: string; target: string; status: Status; found: boolean; matchedForm: string | null }[];
   latinNotAllowed: string[];
 }
 
@@ -341,15 +341,31 @@ export function buildGlossaryBlock(
 
 // ---------- after translation ----------
 
-function containsPunjabiInflection(text: string, form: string): boolean {
-  if (!form.includes('ਾ')) return false;
+function findLiteralForm(text: string, form: string): string | undefined {
+  if (!form) return;
+  const start = text.indexOf(form);
+  if (start === -1) return;
+
+  // Literal matching can find a headword inside an inflected word, such as ਤਿਕੋਣ inside ਤਿਕੋਣਾਂ.
+  const end = start + form.length;
+  const left = /^[\p{L}\p{M}\p{N}]/u.test(form)
+    ? text.slice(0, start).match(/(?<![\p{L}\p{M}\p{N}\u200C\u200D])[\p{L}\p{M}\p{N}\u200C\u200D]+$/u)?.[0]
+    : undefined;
+  const right = /[\p{L}\p{M}\p{N}]$/u.test(form)
+    ? text.slice(end).match(/^[\p{L}\p{M}\p{N}\u200C\u200D]+/u)?.[0]
+    : undefined;
+  return text.slice(start - (left?.length ?? 0), end + (right?.length ?? 0));
+}
+
+function findPunjabiInflection(text: string, form: string): string | undefined {
+  if (!form.includes('ਾ')) return;
   // Regular Gurmukhi forms ending in -ā can take -e or -iā̃, e.g. ਪਾਸਾ → ਪਾਸੇ / ਪਾਸਿਆਂ.
   const escaped = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const inflected = escaped.replace(/([ਕ-ਹਖ਼-ੜਫ਼])ਾ(?=\s|$)/g, '$1(?:ਾ|ੇ|ਿਆਂ)');
-  if (inflected === escaped) return false;
+  if (inflected === escaped) return;
 
   // Count a generated form only as a whole word or phrase, including around combining marks.
-  return new RegExp(`(?<![\\p{L}\\p{M}\\p{N}\\u200C\\u200D])${inflected}(?![\\p{L}\\p{M}\\p{N}\\u200C\\u200D])`, 'u').test(text);
+  return new RegExp(`(?<![\\p{L}\\p{M}\\p{N}\\u200C\\u200D])${inflected}(?![\\p{L}\\p{M}\\p{N}\\u200C\\u200D])`, 'u').exec(text)?.[0];
 }
 
 export function checkOutput(
@@ -362,10 +378,24 @@ export function checkOutput(
   const text = nfc(translated || '');
   const terms = matches.map(m => {
     const options = m.options.map(entry => ({ entry, forms: [entry.target, ...entry.variants].map(nfc) }));
-    const hit = options.find(({ forms }) => forms.some(form => form && text.includes(form)))
-      ?? options.find(({ forms }) => forms.some(form => containsPunjabiInflection(text, form)));
+    const findMatch = (findForm: (text: string, form: string) => string | undefined) => {
+      for (const { entry, forms } of options) {
+        for (const form of forms) {
+          const matchedForm = findForm(text, form);
+          if (matchedForm) return { entry, matchedForm };
+        }
+      }
+    };
+    const hit = findMatch(findLiteralForm) ?? findMatch(findPunjabiInflection);
     const o = hit?.entry ?? m.options[0];
-    return { en: o.en, sense: o.sense, target: o.target, status: o.status, found: !!hit };
+    return {
+      en: o.en,
+      sense: o.sense,
+      target: o.target,
+      status: o.status,
+      found: !!hit,
+      matchedForm: hit?.matchedForm ?? null,
+    };
   });
 
   const prose = text

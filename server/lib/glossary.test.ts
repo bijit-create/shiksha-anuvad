@@ -20,28 +20,37 @@ function report(text: string, options = [side]) {
 }
 
 test('accepts Punjabi direct and oblique plurals and keeps the glossary headword', () => {
-  for (const text of [
-    'ਇੱਕ ਤਿਕੋਣ ਦੇ ਤਿੰਨ ਪਾਸੇ ਹੁੰਦੇ ਹਨ।',
-    'ਤਿੰਨ ਪਾਸਿਆਂ ਤੋਂ',
-    'ਇੱਕ ਪਾਸਾ',
+  for (const [text, expected] of [
+    ['ਇੱਕ ਤਿਕੋਣ ਦੇ ਤਿੰਨ ਪਾਸੇ ਹੁੰਦੇ ਹਨ।', 'ਪਾਸੇ'],
+    ['ਤਿੰਨ ਪਾਸਿਆਂ ਤੋਂ', 'ਪਾਸਿਆਂ'],
+    ['ਇੱਕ ਪਾਸਾ', 'ਪਾਸਾ'],
   ]) {
     const term = report(text);
     assert.equal(term.found, true, text);
     assert.equal(term.target, 'ਪਾਸਾ');
+    assert.equal(term.matchedForm, expected, text);
   }
 });
 
 test('keeps missing terms flagged and rejects generated forms inside another word', () => {
   for (const text of ['ਇੱਕ ਤਿਕੋਣ ਦੇ ਤਿੰਨ ਕਿਨਾਰੇ ਹਨ।', 'ਚੁਪਾਸੇ', 'ਪਾਸੇਵਾਲਾ']) {
-    assert.equal(report(text).found, false, text);
+    const term = report(text);
+    assert.equal(term.found, false, text);
+    assert.equal(term.matchedForm, null, text);
   }
 });
 
 test('accepts inflected phrases and variants and prefers a literal match', () => {
-  assert.equal(report('ਲੰਮੇ ਪਾਸੇ ਹਨ।', [{ ...side, target: 'ਲੰਮਾ ਪਾਸਾ' }]).found, true);
-  assert.equal(report('ਤਿੰਨ ਪਾਸੇ', [{ ...side, target: 'ਕਿਨਾਰਾ', variants: ['ਪਾਸਾ'] }]).found, true);
+  assert.equal(report('ਲੰਮੇ ਪਾਸੇ ਹਨ।', [{ ...side, target: 'ਲੰਮਾ ਪਾਸਾ' }]).matchedForm, 'ਲੰਮੇ ਪਾਸੇ');
+  assert.equal(report('ਤਿੰਨ ਪਾਸੇ', [{ ...side, target: 'ਕਿਨਾਰਾ', variants: ['ਪਾਸਾ'] }]).matchedForm, 'ਪਾਸੇ');
   assert.equal(report('ਪਾਸੇ ਅਤੇ ਕਿਨਾਰਾ', [side, { ...side, target: 'ਕਿਨਾਰਾ' }]).target, 'ਕਿਨਾਰਾ');
   assert.equal(report('तीन भुजाएँ', [{ ...side, target: 'भुजा' }]).found, true);
+});
+
+test('reports the full form found when a literal glossary match is part of a word', () => {
+  const term = report('ਤਿਕੋਣਾਂ ਦੇ ਕੋਣ', [{ ...side, en: 'triangle', target: 'ਤਿਕੋਣ', variants: ['ਤਿਕੋਣਾਂ'] }]);
+  assert.equal(term.target, 'ਤਿਕੋਣ');
+  assert.equal(term.matchedForm, 'ਤਿਕੋਣਾਂ');
 });
 
 test('does not raise a glossary finding for the Punjabi plural', () => {
@@ -54,4 +63,5 @@ test('does not raise a glossary finding for the Punjabi plural', () => {
     '6-10',
   );
   assert.deepEqual(result.findings, []);
+  assert.equal(result.glossary.terms[0].matchedForm, 'ਪਾਸੇ');
 });
