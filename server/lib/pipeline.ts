@@ -40,7 +40,7 @@ export async function translateForUser(user: AuthUser, input: TranslateInput): P
       subject: input.subject || null,
       content_type: input.contentType || null,
       source_chars: input.content.length,
-      terms_applied: report ? report.terms : [],
+      terms_applied: report?.terms.map(({ en, sense, target, status, found }) => ({ en, sense, target, status, found })) ?? [],
       model: out.usage ? `${out.usage.model} in=${out.usage.inputTokens} out=${out.usage.outputTokens}` : null,
     })
     .then(({ error }) => { if (error) console.warn('[log]', error.message); }, (e: any) => console.warn('[log]', e?.message || e));

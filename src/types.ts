@@ -28,6 +28,7 @@ export interface GlossaryTermUse {
   target: string;
   status: 'approved' | 'candidate';
   found: boolean;
+  matchedForm?: string | null;
 }
 
 export interface GlossaryReport {

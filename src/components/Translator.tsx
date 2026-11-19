@@ -398,7 +398,7 @@ export default function Translator() {
             )}
           </div>
 
-          {/* Glossary: terms locked in from the ConveGenius glossary, and whether the output used them */}
+          {/* Show the glossary entry and the word or phrase detected in the translation. */}
           {glossary && !isLoading && output && (glossary.terms.length > 0 || glossary.latinNotAllowed.length > 0) && (
             <div className="bg-indigo-50/60 border border-indigo-100 rounded-xl p-4 space-y-3">
               <h3 className="text-xs font-bold text-indigo-700 uppercase tracking-wider flex items-center gap-2">
@@ -414,13 +414,20 @@ export default function Translator() {
                       key={`${t.en}-${t.target}`}
                       title={`${t.sense || t.en} · ${t.status === 'approved' ? 'approved' : 'textbook, not yet reviewed'}${t.found ? '' : ' · not found in the output'}`}
                       className={cn(
-                        'text-xs px-2 py-1 rounded-lg border',
+                        'text-xs px-2 py-1.5 rounded-lg border',
                         t.found ? 'bg-white border-indigo-100 text-zinc-700' : 'bg-red-50 border-red-200 text-red-700',
                       )}
                     >
-                      {t.en} → <span className="font-hindi">{t.target}</span>
-                      {t.status === 'candidate' && <span className="text-zinc-400"> *</span>}
-                      {!t.found && ' ✗'}
+                      <span className="block font-semibold">{t.en}</span>
+                      <span className="block">
+                        Glossary form: <span className="font-hindi">{t.target}</span>
+                        {t.status === 'candidate' && <span className="text-zinc-400"> *</span>}
+                      </span>
+                      <span className="block">
+                        {t.matchedForm ? (
+                          <>Form found in text: <span className="font-hindi">{t.matchedForm}</span></>
+                        ) : t.found ? 'Matching form found' : 'No matching form found'}
+                      </span>
                     </span>
                   ))}
                 </div>
@@ -430,7 +437,9 @@ export default function Translator() {
                   English left in the translation: {glossary.latinNotAllowed.join(', ')}
                 </p>
               )}
-              <p className="text-[11px] text-indigo-400">* from the NCERT textbook, not yet reviewed. ✗ = glossary term not found in the output.</p>
+              {glossary.terms.some(t => t.status === 'candidate') && (
+                <p className="text-[11px] text-indigo-400">* From the NCERT textbook, awaiting review.</p>
+              )}
             </div>
           )}
         </div>
