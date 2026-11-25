@@ -53,6 +53,26 @@ export const MAX_CHARS = 24_000;
 const PLACEHOLDER = /\{[A-Za-z_][A-Za-z0-9_]*\}/g;
 const TAG = /<\/?[a-zA-Z][^>]*>/g;
 const list = (s: string, re: RegExp) => (s.match(re) || []).map(x => x.replace(/\s+/g, ' ')).sort();
+
+// The Indic block each target language is written in. A letter from another Indic block inside the
+// translation (Bengali letters in Odia words, seen in a model comparison) displays as the wrong script.
+const SCRIPT: Record<string, [number, number]> = {
+  Hindi: [0x0900, 0x097F], Marathi: [0x0900, 0x097F], Sanskrit: [0x0900, 0x097F],
+  Bengali: [0x0980, 0x09FF], Assamese: [0x0980, 0x09FF], Punjabi: [0x0A00, 0x0A7F], Gujarati: [0x0A80, 0x0AFF],
+  Odia: [0x0B00, 0x0B7F], Tamil: [0x0B80, 0x0BFF], Telugu: [0x0C00, 0x0C7F], Kannada: [0x0C80, 0x0CFF],
+  Malayalam: [0x0D00, 0x0D7F],
+};
+/** Letters from another Indic script (U+0900–U+0DFF outside the target's block). Danda । ॥ are shared. */
+export function foreignLetters(target: string, text: string): string[] {
+  const own = SCRIPT[target];
+  if (!own) return [];
+  const bad = new Set<string>();
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    if (cp >= 0x0900 && cp <= 0x0DFF && (cp < own[0] || cp > own[1]) && cp !== 0x0964 && cp !== 0x0965) bad.add(ch);
+  }
+  return [...bad];
+}
 const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 // ---------- glossary for callers without a user session ----------
@@ -121,6 +141,7 @@ interface KeyContext {
 export function checkAll(
   src: Record<string, string>, tgt: Record<string, string>, ctx: Record<string, KeyContext>,
   allowed: Set<string>, version: number, band: ReturnType<typeof bandOf>, haveGlossary: boolean,
+  target = '',
 ): { findings: LessonFinding[]; glossary: GlossaryReport | null } {
   const findings: LessonFinding[] = [];
   const terms = new Map<string, TermUse>();
@@ -136,6 +157,10 @@ export function checkAll(
     }
     if (!same(list(s, TAG), list(t, TAG))) {
       findings.push({ key, test: 'E1', field: 'text', problem: `HTML tags changed. English has ${list(s, TAG).join(' ') || 'none'}. Copy them exactly.` });
+    }
+    const foreign = foreignLetters(target, t);
+    if (foreign.length) {
+      findings.push({ key, test: 'E2', field: 'text', problem: `Letters from another script: ${foreign.join(' ')}. Write every word in ${target} script only.` });
     }
     // Placeholders are not numbers and not English words left in; hide them from the shared checks.
     const c = checkText(s.replace(PLACEHOLDER, ' '), t.replace(PLACEHOLDER, ' ').replace(TAG, ' '), ctx[key].matches, allowed, version, band);
@@ -156,7 +181,7 @@ export function checkAll(
   };
 }
 
-const SEVERITY: Record<string, number> = { E1: 10, E3: 10, E7: 10, E8: 3, E6: 2 };
+const SEVERITY: Record<string, number> = { E1: 10, E2: 10, E3: 10, E7: 10, E8: 3, E6: 2 };
 const weight = (f: Finding[]) => f.reduce((n, x) => n + (SEVERITY[x.test] ?? 1), 0);
 
 function asStrings(j: any): Record<string, string> {
@@ -211,7 +236,7 @@ export async function translateLessonText(req: LessonTextRequest, g: LanguageGlo
   const system = systemFor(target, req.grade, glossaryBlock);
   const english = JSON.stringify({ strings: req.strings }, null, 1);
   const usage: GeminiUsage[] = [];
-  const check = (t: Record<string, string>) => checkAll(req.strings, t, ctx, allowed, version, band, !!g);
+  const check = (t: Record<string, string>) => checkAll(req.strings, t, ctx, allowed, version, band, !!g, target);
 
   // A chosen model is used as is (no fallback), so a comparison really compares that model.
   const model = req.model || pluginDefaultModel();

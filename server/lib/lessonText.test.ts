@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { checkAll, validate } from './lessonText.js';
+import { checkAll, validate, foreignLetters } from './lessonText.js';
 import { pluginRefusal, pluginUser } from './pluginAuth.js';
 import type { GlossaryEntry } from './glossary.js';
 
@@ -64,4 +64,12 @@ test('plugin callers need the current code and a team Claude account', () => {
 test('a model outside the allowed list is refused', () => {
   assert.throws(() => validate({ targetLanguage: 'Hindi', model: 'gemini-9-ultra', strings: { a: 'Tap.' } }), /model must be one of/);
   assert.equal(validate({ targetLanguage: 'Hindi', model: 'gemini-3.8-flash', strings: { a: 'Tap.' } }).model, 'gemini-3.8-flash');
+});
+
+test('letters from another script are flagged (Bengali inside Odia), the shared danda is not', () => {
+  assert.deepEqual(foreignLetters('Odia', 'ଆଲୋକିତ ହୁଏ।'), []);
+  assert.deepEqual(foreignLetters('Odia', 'উଜ୍ଜ୍ୱଳ'), ['উ']);
+  assert.deepEqual(foreignLetters('Hindi', 'दीपक जलाओ।'), []);
+  const { findings } = checkAll({ a: 'The screen is bright.' }, { a: 'ପରଦା উଜ୍ଜ୍ୱଳ।' }, { a: { matches: [] } }, new Set(), 1, '6-10', false, 'Odia');
+  assert.equal(findings[0]?.test, 'E2');
 });
