@@ -1,4 +1,4 @@
-import { callGemini, authoritiesBlock, GeminiUsage, getModel } from './gemini.js';
+import { callGemini, authoritiesBlock, GeminiUsage } from './gemini.js';
 import { translationRules } from './rules.js';
 import { checkText, Finding } from './checks.js';
 import {
@@ -36,15 +36,20 @@ export interface LessonTextResult {
   usage: GeminiUsage[];
 }
 
-// Models the plugin may ask for. PLUGIN_TRANSLATE_MODEL is the default; PLUGIN_TRANSLATE_MODELS (comma list)
-// replaces the allowed list. A model named in the request is used as is: no fallback to another model.
-const DEFAULT_MODELS = ['gemini-3.1-pro-preview', 'gemini-4-neon', 'gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash'];
+// The model for plugin translations. gemini-4-hydrogen was chosen on 25 Nov 2026 after a blind T-QSI comparison
+// of ten models in six languages (Hindi, Telugu, Odia, Punjabi, Marathi, Tamil): best average (98.9), no weak
+// language, about 60% of 3.1 Pro's cost. PLUGIN_TRANSLATE_MODEL overrides it; Shiksha Anuvad's own site still
+// uses GEMINI_MODEL. PLUGIN_TRANSLATE_MODELS (comma list) replaces the models a request may name; a named model
+// is used as is, with no fallback, so comparisons compare that model.
+export const PLUGIN_MODEL = 'gemini-4-hydrogen';
+const DEFAULT_MODELS = [PLUGIN_MODEL, 'gemini-3.1-pro-preview', 'gemini-4-neon', 'gemini-4-argon', 'gemini-4-carbon',
+  'gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash'];
 export function pluginModels(): string[] {
   const env = (process.env.PLUGIN_TRANSLATE_MODELS || '').split(',').map(s => s.trim()).filter(Boolean);
   return env.length ? env : DEFAULT_MODELS;
 }
 export function pluginDefaultModel(): string {
-  return (process.env.PLUGIN_TRANSLATE_MODEL || '').trim() || getModel();
+  return (process.env.PLUGIN_TRANSLATE_MODEL || '').trim() || PLUGIN_MODEL;
 }
 
 export const MAX_STRINGS = 120;

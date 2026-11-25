@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { checkAll, validate, foreignLetters } from './lessonText.js';
+import { checkAll, validate, foreignLetters, pluginDefaultModel } from './lessonText.js';
 import { pluginRefusal, pluginUser } from './pluginAuth.js';
 import type { GlossaryEntry } from './glossary.js';
 
@@ -72,4 +72,12 @@ test('letters from another script are flagged (Bengali inside Odia), the shared 
   assert.deepEqual(foreignLetters('Hindi', 'दीपक जलाओ।'), []);
   const { findings } = checkAll({ a: 'The screen is bright.' }, { a: 'ପରଦା উଜ୍ଜ୍ୱଳ।' }, { a: { matches: [] } }, new Set(), 1, '6-10', false, 'Odia');
   assert.equal(findings[0]?.test, 'E2');
+});
+
+test('plugin translations default to gemini-4-hydrogen unless PLUGIN_TRANSLATE_MODEL is set', () => {
+  delete process.env.PLUGIN_TRANSLATE_MODEL;
+  assert.equal(pluginDefaultModel(), 'gemini-4-hydrogen');
+  process.env.PLUGIN_TRANSLATE_MODEL = 'gemini-3.1-pro-preview';
+  assert.equal(pluginDefaultModel(), 'gemini-3.1-pro-preview');
+  delete process.env.PLUGIN_TRANSLATE_MODEL;
 });
