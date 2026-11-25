@@ -1,4 +1,4 @@
-import { callGemini, authoritiesBlock, GeminiUsage } from './gemini.js';
+import { callGemini, authoritiesBlock, GeminiUsage, getModel } from './gemini.js';
 import { translationRules } from './rules.js';
 import { checkText, Finding } from './checks.js';
 import {
@@ -17,6 +17,7 @@ export interface LessonTextRequest {
   grade?: string;
   subject?: string;
   context?: string;              // what the lesson is and who it is for, for the model only
+  model?: string;                // one of pluginModels(); default PLUGIN_TRANSLATE_MODEL
   strings: Record<string, string>;
 }
 
@@ -33,6 +34,17 @@ export interface LessonTextResult {
   repaired: boolean;
   glossary: GlossaryReport | null; // every glossary term matched in this batch, and whether the translation used it
   usage: GeminiUsage[];
+}
+
+// Models the plugin may ask for. PLUGIN_TRANSLATE_MODEL is the default; PLUGIN_TRANSLATE_MODELS (comma list)
+// replaces the allowed list. A model named in the request is used as is: no fallback to another model.
+const DEFAULT_MODELS = ['gemini-3.1-pro-preview', 'gemini-4-neon', 'gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-2.5-flash'];
+export function pluginModels(): string[] {
+  const env = (process.env.PLUGIN_TRANSLATE_MODELS || '').split(',').map(s => s.trim()).filter(Boolean);
+  return env.length ? env : DEFAULT_MODELS;
+}
+export function pluginDefaultModel(): string {
+  return (process.env.PLUGIN_TRANSLATE_MODEL || '').trim() || getModel();
 }
 
 export const MAX_STRINGS = 120;
@@ -166,8 +178,11 @@ export function validate(body: any): LessonTextRequest {
   if (entries.length > MAX_STRINGS) throw bad(`Send at most ${MAX_STRINGS} strings per request.`);
   const chars = entries.reduce((n, [, v]) => n + (v as string).length, 0);
   if (chars > MAX_CHARS) throw bad(`Send at most ${MAX_CHARS} characters per request (this one has ${chars}).`);
+  const model = body.model ? String(body.model).trim() : undefined;
+  if (model && !pluginModels().includes(model)) throw bad(`model must be one of: ${pluginModels().join(', ')}.`);
   return {
     targetLanguage,
+    model,
     grade: body.grade ? String(body.grade) : undefined,
     subject: body.subject ? String(body.subject) : undefined,
     context: body.context ? String(body.context) : undefined,
@@ -198,7 +213,10 @@ export async function translateLessonText(req: LessonTextRequest, g: LanguageGlo
   const usage: GeminiUsage[] = [];
   const check = (t: Record<string, string>) => checkAll(req.strings, t, ctx, allowed, version, band, !!g);
 
-  const first = await callGemini(system, `${describe(req)}\n\nEnglish strings:\n${english}`);
+  // A chosen model is used as is (no fallback), so a comparison really compares that model.
+  const model = req.model || pluginDefaultModel();
+  const ask = (prompt: string) => callGemini(system, prompt, 6, model, !req.model);
+  const first = await ask(`${describe(req)}\n\nEnglish strings:\n${english}`);
   usage.push(first.usage);
   const draft = asStrings(first.json);
   const c1 = check(draft);
@@ -211,7 +229,7 @@ export async function translateLessonText(req: LessonTextRequest, g: LanguageGlo
 
   const problems = c1.findings.map(f => `- [${f.test}, ${f.key}] ${f.problem}`).join('\n');
   try {
-    const second = await callGemini(system, `${describe(req)}
+    const second = await ask(`${describe(req)}
 
 English strings:
 ${english}

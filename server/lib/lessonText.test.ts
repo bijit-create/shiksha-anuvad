@@ -60,3 +60,8 @@ test('plugin callers need the current code and a team Claude account', () => {
   const none = { ...ok, user: {} };
   assert.equal(pluginRefusal(none, pluginUser(none))?.status, 403);
 });
+
+test('a model outside the allowed list is refused', () => {
+  assert.throws(() => validate({ targetLanguage: 'Hindi', model: 'gemini-9-ultra', strings: { a: 'Tap.' } }), /model must be one of/);
+  assert.equal(validate({ targetLanguage: 'Hindi', model: 'gemini-3.8-flash', strings: { a: 'Tap.' } }).model, 'gemini-3.8-flash');
+});
