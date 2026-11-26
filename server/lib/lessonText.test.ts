@@ -40,7 +40,7 @@ test('the batch report lists each glossary term once, found only if every string
     { a: ctx(m), b: ctx(m) }, new Set(), 1, '6-10', true);
   assert.equal(glossary!.terms.length, 1);
   assert.equal(glossary!.terms[0].found, false);
-  assert.ok(findings.some(f => f.key === 'b' && f.test === 'E6'));
+  assert.ok(!findings.some(f => f.test === 'E6'), 'candidate terms are notes, not problems');
 });
 
 test('validate rejects an empty batch and a batch that is too large', () => {
@@ -80,4 +80,15 @@ test('plugin translations default to gemini-4-hydrogen unless PLUGIN_TRANSLATE_M
   process.env.PLUGIN_TRANSLATE_MODEL = 'gemini-3.1-pro-preview';
   assert.equal(pluginDefaultModel(), 'gemini-3.1-pro-preview');
   delete process.env.PLUGIN_TRANSLATE_MODEL;
+});
+
+test('an unused candidate term is reported but is not a problem; an unused approved term is', () => {
+  const watchCandidate = { ...shadow, termId: 2, en: 'watch', sense: 'small wearable timepiece', target: 'घड़ी', variants: [] };
+  const src = { a: 'Watch the show.' }, tgt = { a: 'शो देखो।' };
+  const cand = checkAll(src, tgt, { a: { matches: [{ en: 'watch', options: [watchCandidate] }] } }, new Set(), 1, '6-10', true, 'Hindi');
+  assert.equal(cand.findings.length, 0);
+  assert.equal(cand.glossary!.terms[0].found, false);
+  const approved = { ...watchCandidate, status: 'approved' as const };
+  const appr = checkAll(src, tgt, { a: { matches: [{ en: 'watch', options: [approved] }] } }, new Set(), 1, '6-10', true, 'Hindi');
+  assert.equal(appr.findings[0]?.test, 'E6');
 });

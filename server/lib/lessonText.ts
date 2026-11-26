@@ -169,7 +169,16 @@ export function checkAll(
     }
     // Placeholders are not numbers and not English words left in; hide them from the shared checks.
     const c = checkText(s.replace(PLACEHOLDER, ' '), t.replace(PLACEHOLDER, ' ').replace(TAG, ' '), ctx[key].matches, allowed, version, band);
-    findings.push(...c.findings.map(f => ({ ...f, key })));
+    // Glossary terms: only an unused APPROVED term is a problem (and triggers the repair pass). An unused
+    // candidate term is a suggestion: in lesson text it is very often a different sense of the word ("it" →
+    // IT, "watch the show" → wristwatch, "drag the puppet" → drag force). It stays in the glossary report
+    // as "not used" for the reviewers, but is not counted and does not force the model to use it.
+    findings.push(...c.findings.filter(f => f.test !== 'E6').map(f => ({ ...f, key })));
+    for (const u of c.glossary.terms) {
+      if (!u.found && u.status === 'approved') {
+        findings.push({ key, test: 'E6', field: 'text', problem: `"${u.en}"${u.sense ? ` (${u.sense})` : ''} must be rendered as "${u.target}" (inflected as needed) wherever the source uses it in that sense; leave it if the source means something else.` });
+      }
+    }
     for (const u of c.glossary.terms) {
       const id = `${u.en}|${u.sense}`;
       const prev = terms.get(id);
