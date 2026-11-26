@@ -11,6 +11,7 @@ import { authenticate, allowedDomain } from './lib/auth.js';
 import { isSupabaseConfigured } from './lib/supabase.js';
 import { translateForUser } from './lib/pipeline.js';
 import { glossaryInfo, lookupTerm } from './lib/glossaryLookup.js';
+import { handlePluginTranslate } from './lib/pluginTranslate.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -59,6 +60,12 @@ app.post('/api/translate', async (req: Request, res: Response) => {
     console.error('[translate] error:', err?.message || err);
     return res.status(500).json({ error: 'Failed to translate content. Please try again.' });
   }
+});
+
+// The textbook-lesson-builder plugin (no Supabase session; plugin code + Claude account instead).
+app.post('/api/plugin-translate', async (req: Request, res: Response) => {
+  const { status, json } = await handlePluginTranslate(req.body);
+  res.status(status).json(json);
 });
 
 app.get('/api/glossary', async (req: Request, res: Response) => {
